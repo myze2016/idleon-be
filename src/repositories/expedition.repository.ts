@@ -2,21 +2,31 @@ import { randomInt } from "node:crypto";
 import { prisma } from "../lib/prisma.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { enemies, enemyPools, enemyRewards, type EnemyType, type Location } from "../models/enemy.js";
-import { baseStats } from "../models/character-stats.js";
+import { effectiveStats } from "../models/artifact.js";
 import type { WeaponType } from "../models/character.js";
 import { simulateGroupBattle } from "../services/battle.service.js";
 import { HttpError } from "../utils/http-error.js";
 import { accountProgress, levelUpReward } from "../models/account-progress.js";
 
-export async function spawnEncounter(userId: string, ids: string[], location: Location, newExpedition = false) {
+export async function endExpedition(userId: string) {
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+    await tx.encounter.deleteMany({ where: { userId } });
+    await tx.user.update({ where: { id: userId }, data: {
+      meadowDefeats: 0, forestDefeats: 0, meadowBossAt: null, forestBossAt: null,
+    } });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+}
+
+export async function spawnEncounter(userId: string, ids: string[], location: Location, newExpedition = false, wave = false) {
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
     const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
-    const owned = await tx.character.findMany({ where: { userId, id: { in: ids } } });
+    const owned = await tx.character.findMany({ where: { userId, id: { in: ids } }, include: { artifact: true } });
     if (owned.length !== ids.length) throw new HttpError(400, "Choose characters you own");
     if (newExpedition) {
       const vitals = Object.fromEntries(owned.map((character) => {
-        const stats = baseStats[character.weapon.replaceAll("_", "-") as WeaponType];
+        const stats = effectiveStats(character.weapon.replaceAll("_", "-") as WeaponType, character.artifact, character.upgradeLevel);
         return [character.id, { hp: stats.hp, mp: stats.mp }];
       }));
       await tx.user.update({ where: { id: userId }, data: { expeditionVitals: vitals } });
@@ -29,15 +39,20 @@ export async function spawnEncounter(userId: string, ids: string[], location: Lo
     let target = location === "meadow" ? user.meadowBossAt : user.forestBossAt;
     const defeats = location === "meadow" ? user.meadowDefeats : user.forestDefeats;
     if (target === null) {
-      target = randomInt(25, 31);
+      target = randomInt(38, 46);
       await tx.user.update({ where: { id: userId }, data: location === "meadow" ? { meadowBossAt: target } : { forestBossAt: target } });
     }
     const pool: EnemyType[] = enemyPools[location];
     const bossType = location === "meadow" ? "mutant-boar" : "coco-klan-chief";
-    const bossDue = defeats >= target && !active.some((encounter) => encounter.enemyType === bossType);
-    const enemyType = bossDue ? bossType : pool[randomInt(pool.length)];
-    const encounter = await tx.encounter.create({ data: { userId, teamIds: ids, enemyType, location } });
-    return { id: encounter.id, location, ...enemyRewards(enemyType),
+    const bossDue = defeats >= target && !active.some((encounter) => encounter.enemyType === "mutant-boar" || encounter.enemyType === "coco-klan-chief");
+    const count = bossDue ? 1 : Math.min(32 - active.length, wave && location === "forest" ? randomInt(1, 3) : 1);
+    const spawned = [];
+    for (let index = 0; index < count; index++) {
+      const enemyType = bossDue ? bossType : pool[randomInt(pool.length)];
+      const encounter = await tx.encounter.create({ data: { userId, teamIds: ids, enemyType, location } });
+      spawned.push({ id: encounter.id, location, ...enemyRewards(enemyType) });
+    }
+    return { ...spawned[0], additionalEnemies: spawned.slice(1),
       meadowProgress: { defeated: user.meadowDefeats, target: location === "meadow" ? target : user.meadowBossAt },
       forestProgress: { defeated: user.forestDefeats, target: location === "forest" ? target : user.forestBossAt } };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
@@ -59,14 +74,14 @@ export async function resolveEncounters(userId: string, ids: string[]) {
     }
     const teamIds = encounters[0].teamIds as string[];
     if (encounters.some((encounter) => encounter.location !== encounters[0].location || JSON.stringify(encounter.teamIds) !== JSON.stringify(teamIds))) throw new HttpError(400, "Battle monsters from the same location and team");
-    const owned = await tx.character.findMany({ where: { userId, id: { in: teamIds } } });
+    const owned = await tx.character.findMany({ where: { userId, id: { in: teamIds } }, include: { artifact: true } });
     if (owned.length !== teamIds.length) throw new HttpError(409, "Your team changed. Return to the room.");
     const vitals = (user.expeditionVitals ?? {}) as Record<string, { hp: number; mp: number }>;
     const fighters = teamIds.map((id) => {
       const character = owned.find((member) => member.id === id)!;
       const weapon = character.weapon.replaceAll("_", "-") as WeaponType;
-      const stats = baseStats[weapon];
-      return { id, weapon, skill2Unlocked: character.skill2Unlocked, stats, hp: vitals[id]?.hp ?? stats.hp, mp: vitals[id]?.mp ?? stats.mp };
+      const stats = effectiveStats(weapon, character.artifact, character.upgradeLevel);
+      return { id, weapon, skill2Unlocked: character.skill2Unlocked, stats, hp: Math.min(stats.hp, vitals[id]?.hp ?? stats.hp), mp: Math.min(stats.mp, vitals[id]?.mp ?? stats.mp) };
     });
     if (fighters.every((fighter) => fighter.hp <= 0)) throw new HttpError(409, "Your team is defeated. Return to the room.");
     const types = encounters.map((encounter) => encounter.enemyType as EnemyType);
@@ -78,11 +93,11 @@ export async function resolveEncounters(userId: string, ids: string[]) {
     const bossWon = defeated.includes("mutant-boar");
     const meadowKills = encounters.filter((encounter, i) => encounter.location === "meadow" && encounter.enemyType !== "mutant-boar" && battle.enemyHps[i] <= 0).length;
     const meadowDefeats = bossWon ? 0 : user.meadowDefeats + meadowKills;
-    const meadowBossAt = bossWon ? randomInt(25, 31) : user.meadowBossAt;
+    const meadowBossAt = bossWon ? randomInt(38, 46) : user.meadowBossAt;
     const chiefWon = defeated.includes("coco-klan-chief");
     const forestKills = encounters.filter((encounter, i) => encounter.location === "forest" && encounter.enemyType !== "coco-klan-chief" && battle.enemyHps[i] <= 0).length;
     const forestDefeats = chiefWon ? 0 : user.forestDefeats + forestKills;
-    const forestBossAt = chiefWon ? randomInt(25, 31) : user.forestBossAt;
+    const forestBossAt = chiefWon ? randomInt(38, 46) : user.forestBossAt;
     const result = { ...battle, initialTeamHp: fighters.map((fighter) => fighter.hp), initialTeamMp: fighters.map((fighter) => fighter.mp), goldEarned, wishEarned, levelsGained, expEarned, encounterIds: ids,
       enemies: encounters.map((encounter) => ({ id: encounter.id, ...enemyRewards(encounter.enemyType as EnemyType) })) };
     const battleId = encounters[0].id;

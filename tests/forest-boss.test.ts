@@ -19,8 +19,8 @@ test("Forest chief uses its own defeat cycle and rewards 10 gold without boss wi
   }
   const spawn = () => agent.post("/api/encounters").set("Origin", env.corsOrigin).send({ location: "forest", teamIds });
   const first = await spawn().expect(201);
-  assert.ok(first.body.data.forestProgress.target >= 25 && first.body.data.forestProgress.target <= 30);
-  await prisma.user.update({ where: { id: "chief-user" }, data: { forestDefeats: 25, forestBossAt: 26, meadowDefeats: 13, meadowBossAt: 29 } });
+  assert.ok(first.body.data.forestProgress.target >= 38 && first.body.data.forestProgress.target <= 45);
+  await prisma.user.update({ where: { id: "chief-user" }, data: { forestDefeats: 38, forestBossAt: 39, meadowDefeats: 13, meadowBossAt: 29 } });
   const regular = await spawn().expect(201);
   assert.equal(regular.body.data.boss, false);
   await agent.post(`/api/encounters/${regular.body.data.id}/resolve`).set("Origin", env.corsOrigin).expect(200);
@@ -39,7 +39,7 @@ test("Forest chief uses its own defeat cycle and rewards 10 gold without boss wi
   }
   const saved = await prisma.user.findUniqueOrThrow({ where: { id: "chief-user" } });
   assert.equal(saved.gold, before.gold + 10); assert.equal(saved.wishCurrency, before.wishCurrency);
-  assert.equal(saved.forestDefeats, 0); assert.ok(saved.forestBossAt! >= 25 && saved.forestBossAt! <= 30);
+  assert.equal(saved.forestDefeats, 0); assert.ok(saved.forestBossAt! >= 38 && saved.forestBossAt! <= 45);
   assert.equal(saved.meadowDefeats, 13); assert.equal(saved.meadowBossAt, 29);
   await agent.delete("/api/character").set("Origin", env.corsOrigin).expect(204);
   const reset = await prisma.user.findUniqueOrThrow({ where: { id: "chief-user" } });

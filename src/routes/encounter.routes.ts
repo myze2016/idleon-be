@@ -2,7 +2,7 @@ import { Router } from "express";
 import { requireAuth } from "../middlewares/require-auth.js";
 import { env } from "../config/env.js";
 import { HttpError } from "../utils/http-error.js";
-import { spawnEncounter, resolveEncounter, resolveEncounters } from "../repositories/expedition.repository.js";
+import { spawnEncounter, resolveEncounter, resolveEncounters, endExpedition } from "../repositories/expedition.repository.js";
 
 export const encounterRouter = Router();
 encounterRouter.use(requireAuth);
@@ -17,7 +17,11 @@ encounterRouter.post("/", async (req, res) => {
   if (!Array.isArray(teamIds) || !teamIds.length || teamIds.length > 6 || teamIds.some((id) => typeof id !== "string") || new Set(teamIds).size !== teamIds.length) {
     throw new HttpError(400, "Choose 1–6 different characters");
   }
-  res.status(201).json({ data: await spawnEncounter(req.session.user!.id, teamIds, location, req.body?.newExpedition === true) });
+  res.status(201).json({ data: await spawnEncounter(req.session.user!.id, teamIds, location, req.body?.newExpedition === true, req.body?.wave === true) });
+});
+encounterRouter.post("/return", async (req, res) => {
+  await endExpedition(req.session.user!.id);
+  res.sendStatus(204);
 });
 encounterRouter.post("/resolve", async (req, res) => {
   const ids = req.body?.encounterIds;

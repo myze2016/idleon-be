@@ -3,12 +3,29 @@ import { test } from "node:test";
 import { simulateBattle, type Fighter } from "../src/services/battle.service.js";
 import { baseStats, type CharacterStats } from "../src/models/character-stats.js";
 import type { WeaponType } from "../src/models/character.js";
+import { skills } from "../src/models/skills.js";
 
 const enemy: CharacterStats = { hp: 1000, mp: 0, atk: 5, def: 0, magic: 0, magicDef: 0, speed: 0, range: "melee" };
 function member(weapon: WeaponType, unlocked = false, overrides: Partial<CharacterStats> = {}): Fighter {
   return { id: weapon, weapon, skill2Unlocked: unlocked, stats: { ...baseStats[weapon], ...overrides } };
 }
 const never = () => 0.99, always = () => 0;
+
+test("active damage adds the current relevant stat before defense and criticals, including buffs", () => {
+  const rifle = simulateBattle([member("rifle", true, { hp: 1000, atk: 30, magic: 99 })], { ...enemy, def: 7, magicDef: 50 }, always);
+  assert.equal(rifle.steps.find((step) => step.label === "Long Shot")?.damage, 126);
+  const staff = simulateBattle([member("staff", false, { hp: 1000, atk: 99, magic: 45 })], { ...enemy, def: 70, magicDef: 12 }, never);
+  assert.equal(staff.steps.find((step) => step.label === "Fireball")?.damage, 53);
+  const hero = simulateBattle([member("great-sword", true, { hp: 1000 })], enemy, never);
+  assert.equal(hero.steps.find((step) => step.label === "Slash")?.damage, 60);
+  const bow = simulateBattle([member("bow", true, { hp: 1000, atk: 99 })], enemy, never);
+  assert.equal(bow.steps.find((step) => step.label?.startsWith("Shackle ·"))?.damage, 0);
+  assert.ok(bow.steps.filter((step) => step.kind === "poison").every((step) => step.damage === 5));
+  for (const definitions of Object.values(skills)) for (const skill of definitions) {
+    if (skill.passive || ["heal", "mass-heal", "attack-buff", "speed-buff", "hero", "burst-fire", "shackle"].includes(skill.id)) assert.equal(skill.damage, undefined);
+    if (skill.damage) assert.ok(skill.description.includes(skill.damage.stat === "atk" ? "+ current ATK" : "+ current Magic"));
+  }
+});
 
 test("shield blocks and unlocked counters use independent proc rolls", () => {
   const locked = simulateBattle([member("sword-and-shield")], { ...enemy, hp: 100 }, always);
@@ -55,10 +72,10 @@ test("Wand heals the wounded ally, caps HP, and Mass Heal is free and targets al
 
 test("Staff, Spear, Axe, and Great Sword deal their configured skill damage and costs", () => {
   for (const [weapon, unlocked, label, damage, cost] of [
-    ["staff", false, "Fireball", 20, 10], ["staff", true, "Inferno", 20, 30],
-    ["spear", false, "Throw Spear", 20, 10], ["spear", true, "Charge", 40, 10],
-    ["axe", false, "Heavy Blow", 40, 10], ["axe", true, "Berserker Blow", 60, 10],
-    ["great-sword", false, "Slash", 30, 10],
+    ["staff", false, "Fireball", 35, 10], ["staff", true, "Inferno", 35, 30],
+    ["spear", false, "Throw Spear", 35, 10], ["spear", true, "Charge", 55, 10],
+    ["axe", false, "Heavy Blow", 60, 10], ["axe", true, "Berserker Blow", 80, 10],
+    ["great-sword", false, "Slash", 40, 10],
   ] as const) {
     const battle = simulateBattle([member(weapon, unlocked, { hp: 1000 })], enemy, never);
     assert.equal(battle.steps.find((step) => step.label === label)?.damage, damage, label);
@@ -89,9 +106,9 @@ test("Hero adds 20 defense for 7 seconds and Rifle critical skills deal double d
   assert.ok(hero.steps.some((step) => step.label === "Buff expired" && Math.abs(step.at - buff.at - 7) < 1e-8));
   const rifle = simulateBattle([member("rifle", true, { hp: 1000 })], enemy, always);
   const crit = rifle.steps.find((step) => step.label === "Long Shot")!;
-  assert.equal(crit.damage, 80); assert.equal(crit.critical, true); assert.equal(crit.at, 2);
+  assert.equal(crit.damage, 100); assert.equal(crit.critical, true); assert.equal(crit.at, 2);
   const locked = simulateBattle([member("rifle", false, { hp: 1000 })], enemy, always);
-  assert.equal(locked.steps.find((step) => step.label === "Long Shot")?.damage, 40);
+  assert.equal(locked.steps.find((step) => step.label === "Long Shot")?.damage, 50);
 });
 
 test("both dual-weapon types proc extra basic hits and gain 40 speed for a 3-second Burst Fire", () => {

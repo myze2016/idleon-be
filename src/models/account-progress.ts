@@ -1,6 +1,6 @@
 export const BASE_LEVEL_EXP = 10;
 export const EXP_GROWTH = 2;
-export const WISHES_PER_LEVEL = 20;
+export const WISHES_PER_LEVEL = 100;
 
 export function accountProgress(experience: number) {
   let level = 1, remaining = experience, required = BASE_LEVEL_EXP;

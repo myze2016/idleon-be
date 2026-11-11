@@ -1,0 +1,37 @@
+import "./setup.js";
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import request from "supertest";
+import { app } from "../src/app.js";
+import { prisma } from "../src/lib/prisma.js";
+import { env } from "../src/config/env.js";
+import { hashPassword } from "../src/utils/password.js";
+
+test("team slots persist across logout and room return, validate ownership, and reset with the roster", async () => {
+  const userId = "team-user";
+  await prisma.user.create({ data: { id: userId, username: userId, name: "Team", passwordHash: await hashPassword("Test123!") } });
+  const agent = request.agent(app);
+  const login = () => agent.post("/api/auth/login").set("Origin", env.corsOrigin).send({ username: userId, password: "Test123!" });
+  await login().expect(200);
+  const created = await agent.post("/api/character").set("Origin", env.corsOrigin).send({ name: "Knight", weapon: "sword-and-shield" }).expect(201);
+  const starterId = created.body.data.characters[0].id;
+  assert.deepEqual(created.body.data.teamSlots, [starterId, null, null, null, null, null]);
+  const second = await prisma.character.create({ data: { userId, name: "Mage", weapon: "staff" } });
+  const assign = (slot: number, characterId: string) => agent.post("/api/character/team").set("Origin", env.corsOrigin).send({ slot, characterId });
+  await request(app).post("/api/character/team").set("Origin", env.corsOrigin).send({ slot: 0, characterId: starterId }).expect(401);
+  await agent.post("/api/character/team").send({ slot: 0, characterId: starterId }).expect(403);
+  await assign(6, starterId).expect(400);
+  await assign(-1, starterId).expect(400);
+  await assign(1.5, starterId).expect(400);
+  await assign(1, "not-owned").expect(400);
+  const updates = await Promise.all([assign(4, starterId), assign(2, second.id)]);
+  assert.ok(updates.every((response) => response.status === 200));
+  const expected = [null, null, second.id, null, starterId, null];
+  await agent.post("/api/encounters/return").set("Origin", env.corsOrigin).expect(204);
+  await agent.post("/api/auth/logout").set("Origin", env.corsOrigin).expect(204);
+  await login().expect(200);
+  assert.deepEqual((await agent.get("/api/character").expect(200)).body.data.teamSlots, expected);
+  assert.deepEqual((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).teamSlots, expected);
+  await agent.delete("/api/character").set("Origin", env.corsOrigin).expect(204);
+  assert.deepEqual((await agent.get("/api/character").expect(200)).body.data.teamSlots, [null, null, null, null, null, null]);
+});

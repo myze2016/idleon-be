@@ -7,9 +7,19 @@ export const CRITICAL_MULTIPLIER = 2;
 export interface SkillDefinition {
   id: string; name: string; description: string; passive: boolean;
   mpCost: number; hpCost: number; baseCastTime: number; cooldown: number;
+  damage?: { base: number; stat: "atk" | "magic" };
 }
+const damagingSkills: Record<string, { base: number; stat: "atk" | "magic" }> = {
+  fireball: { base: 20, stat: "magic" }, inferno: { base: 20, stat: "magic" },
+  "throw-spear": { base: 20, stat: "atk" }, charge: { base: 40, stat: "atk" },
+  "heavy-blow": { base: 40, stat: "atk" }, "berserker-blow": { base: 60, stat: "atk" },
+  slash: { base: 30, stat: "atk" }, "long-shot": { base: 40, stat: "atk" },
+};
 function active(id: string, name: string, description: string, mpCost: number, hpCost = 0): SkillDefinition {
-  return { id, name, description, passive: false, mpCost, hpCost, baseCastTime: 1, cooldown: 5 };
+  const damage = damagingSkills[id];
+  const damageType = damage?.stat === "magic" ? "magic" : "physical";
+  const scaledDescription = damage ? description.replace(`${damage.base} ${damageType} damage`, `(${damage.base} + current ${damage.stat === "atk" ? "ATK" : "Magic"}) ${damageType} damage before defense`) : description;
+  return { id, name, description: scaledDescription, passive: false, mpCost, hpCost, baseCastTime: 1, cooldown: 5, ...(damage ? { damage } : {}) };
 }
 function passive(id: string, name: string, description: string): SkillDefinition {
   return { id, name, description, passive: true, mpCost: 0, hpCost: 0, baseCastTime: 0, cooldown: 0 };

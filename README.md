@@ -59,7 +59,7 @@ session so the player can create a new starter character.
 
 `GET /api/character` returns `character` (starter), `characters` (full owned roster),
 and `wishCurrency`. Starter creation grants 1 currency in the same transaction.
-`POST /api/character/wish` spends 1 currency and awards a random one of the 11
+`POST /api/character/wish` spends 100 currency and awards a random one of the 11
 weapon types not already owned, with equal chances among the remaining types.
 The starter counts as owned. User row locking prevents concurrent wishes from
 awarding the same type. Once all 11 are owned, wishes return 409 without spending
@@ -99,7 +99,7 @@ EXP is stored on `users.experience`, not on characters. Level starts at 1 and
 requires 10 EXP for the first level-up, then doubles the requirement each level:
 10, 20, 40, 80, etc. `src/models/account-progress.ts` defines this rule.
 Character state and battle responses include `progression` with level, total EXP,
-current-level EXP, and the next-level requirement. Each level gained grants 20 wish
+current-level EXP, and the next-level requirement. Each level gained grants 100 wish
 currency in the reward transaction, including multiple levels gained in one battle.
 Duplicate reward requests cannot award EXP or level wishes twice. Existing total
 EXP is retained and interpreted using the new curve; prior levels are not retroactively
@@ -139,20 +139,20 @@ timing. Snapshots include `enemyIndex` and `enemyHps` for multi-monster playback
 MP, cast progress, event labels, healing, targets, and critical flags for playback.
 
 Meadow boss progress is stored on `users.meadow_defeats` and `meadow_boss_at`. A
-random target of 25–30 regular Meadow defeats makes the next Meadow spawn a Mutant
+random target of 38–45 regular Meadow defeats makes the next Meadow spawn a Mutant
 Boar (300 HP, 30 ATK, 5 DEF, melee, other stats 0). Only one pending boss is spawned
 at a time. Defeating it awards 40 gold and 1 EXP, resets the
-counter, and rolls a new target. Losing or leaving preserves progress. Forest kills
+counter, and rolls a new target. Returning to the room, including after defeat, resets both location counters and boss targets through POST /api/encounters/return and clears old encounters. Forest kills
 do not advance it. Group rewards count each defeated monster, even on a team loss,
 and are paid once per battle. Character/account reset clears boss progress.
 
-Forest has an independent saved 25–30-kill cycle in `forest_defeats` and
+Forest has an independent saved 38–45-kill cycle in `forest_defeats` and
 `forest_boss_at`. Its boss is Coco Klan Chief: 500 HP, 40 ATK, 10 DEF, ranged,
 all other stats 0. Defeating the Chief awards 10 gold and 1 EXP,
 then resets only the Forest cycle. Only one pending Chief may spawn at a time.
 Spawn and battle responses include `forestProgress` alongside `meadowProgress`.
 Bosses grant no direct wish currency. Their EXP can still trigger the normal
-20-wish level-up reward. Battle responses include `levelsGained` and `wishEarned`.
+100-wish level-up reward. Battle responses include `levelsGained` and `wishEarned`.
 
 ## Commands
 
@@ -192,3 +192,13 @@ repositories. Prisma Client is generated in `src/generated/prisma/` and ignored 
 The app includes Helmet headers, an explicit CORS origin, bounded JSON bodies,
 JSON 404 responses, and centralized errors that hide unexpected error details.
 Use Express 5 async handlers directly; rejected promises reach the error handler.
+
+Encounter creation accepts wave: true to spawn exactly 1 regular monster in Meadow or 1–2 with equal probability in Forest in one transaction; additionalEnemies contains the remaining wave members. A due boss always spawns alone. Boss targets now range from 38–45 kills; the latest migration halves existing 75–90 targets, rounding up.
+
+Team formation is saved in users.team_slots as six ordered character IDs or nulls. POST /api/character/team accepts slot (0–5) and characterId, validates ownership, and atomically moves the character from its previous slot. GET /api/character includes teamSlots. New starters begin in Front 1. Logout and room return preserve the formation; roster deletion clears it.
+
+Artifacts: seven shop types each give +5 to one numeric stat (HP, MP, ATK, DEF, Magic, Magic DEF, Speed) for 1,000 gold. POST /api/character/artifacts/buy accepts stat; POST /api/character/:id/artifact accepts artifactId or null to unequip. Each purchased copy belongs to one account and can occupy one character's single artifact slot. Purchases and equipment use account row locks. GET /api/character returns artifacts, equipped artifactId, baseStats, effective stats, and adjusted action timing. Combat and fresh-expedition vitals use effective stats. Equipping mid-expedition does not restore HP or MP; combat bonuses apply to newly resolved battles. Roster reset deletes artifacts.
+
+Character upgrades: POST /api/character/:id/upgrade spends 1,000 gold for each permanent, repeatable upgrade. Rifle/Great Sword/Axe/Spear gain +5 ATK, Book gains +10 MP, Staff gains +5 Magic, and Dual Gun/Bow gain +5 Speed per level. Sword and Shield, Wand, and Dual Knife are unavailable until bonuses are defined. Character state includes upgradeLevel and upgrade metadata. Effective combat stats and action timing include upgrades plus artifact bonuses. Transactions validate ownership and serialize gold spending.
+
+Active damaging skills add 100% of the caster's current relevant stat: Long Shot, Slash, Throw Spear, Charge, Heavy Blow, and Berserker Blow add ATK; Fireball and Inferno add Magic. Calculation uses upgrades, equipped artifacts, and active buffs when the cast finishes, subtracts the target's corresponding defense, then applies critical damage. Skill definitions expose base damage and scaling stat and describe the formula. Passives, poison, healing, stuns, and buffs have no additional scaling. Book, Bow, and Dual Gun currently have no active damaging skill to scale.

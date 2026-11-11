@@ -10,6 +10,48 @@ import { enemies } from "../src/models/enemy.js";
 import { baseStats } from "../src/models/character-stats.js";
 import { simulateBattle } from "../src/services/battle.service.js";
 
+test("Meadow spawns one monster, Forest spawns 1–2, and a due boss always spawns alone", async () => {
+  const userId = "wave-user";
+  await prisma.user.create({ data: { id: userId, username: userId, name: "Explorer", passwordHash: await hashPassword("Test123!") } });
+  const agent = request.agent(app);
+  await agent.post("/api/auth/login").set("Origin", env.corsOrigin).send({ username: userId, password: "Test123!" }).expect(200);
+  const created = await agent.post("/api/character").set("Origin", env.corsOrigin).send({ name: "Guardian", weapon: "sword-and-shield" }).expect(201);
+  const teamIds = [created.body.data.characters[0].id];
+  for (const location of ["meadow", "forest"]) {
+    for (let i = 0; i < 4; i++) {
+      const response = await agent.post("/api/encounters").set("Origin", env.corsOrigin).send({ location, teamIds, newExpedition: true, wave: true }).expect(201);
+      const group = [response.body.data, ...response.body.data.additionalEnemies];
+      if (location === "meadow") assert.equal(group.length, 1);
+      else assert.ok(group.length >= 1 && group.length <= 2);
+      assert.ok(group.every((enemy) => !enemy.boss && enemy.location === location));
+      assert.equal(new Set(group.map((enemy) => enemy.id)).size, group.length);
+      assert.equal(await prisma.encounter.count({ where: { userId } }), group.length);
+    }
+    await prisma.user.update({ where: { id: userId }, data: { meadowDefeats: 45, meadowBossAt: 45, forestDefeats: 45, forestBossAt: 45 } });
+    const boss = await agent.post("/api/encounters").set("Origin", env.corsOrigin).send({ location, teamIds, newExpedition: true, wave: true }).expect(201);
+    assert.equal(boss.body.data.boss, true);
+    assert.deepEqual(boss.body.data.additionalEnemies, []);
+    await agent.post("/api/encounters/return").set("Origin", env.corsOrigin).expect(204);
+  }
+});
+
+test("returning to the room resets both boss cycles and removes old encounters without spending rewards", async () => {
+  const userId = "return-user";
+  await prisma.user.create({ data: { id: userId, username: userId, name: "Explorer", passwordHash: await hashPassword("Test123!"), meadowDefeats: 20, meadowBossAt: 25, forestDefeats: 29, forestBossAt: 30, gold: 100, experience: 5, wishCurrency: 7 } });
+  const agent = request.agent(app);
+  await agent.post("/api/auth/login").set("Origin", env.corsOrigin).send({ username: userId, password: "Test123!" }).expect(200);
+  const encounter = await prisma.encounter.create({ data: { userId, enemyType: "boar", teamIds: [] } });
+  await request(app).post("/api/encounters/return").set("Origin", env.corsOrigin).expect(401);
+  await agent.post("/api/encounters/return").expect(403);
+  await agent.post("/api/encounters/return").set("Origin", env.corsOrigin).expect(204);
+  const saved = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+  assert.equal(saved.meadowDefeats, 0); assert.equal(saved.forestDefeats, 0);
+  assert.equal(saved.meadowBossAt, null); assert.equal(saved.forestBossAt, null);
+  assert.equal(saved.gold, 100); assert.equal(saved.experience, 5); assert.equal(saved.wishCurrency, 7);
+  await agent.post(`/api/encounters/${encounter.id}/resolve`).set("Origin", env.corsOrigin).expect(404);
+  await agent.post("/api/encounters/return").set("Origin", env.corsOrigin).expect(204);
+});
+
 test("expedition HP and MP persist between battles, replay safely, and recover on a new expedition", async () => {
   const userId = "vitals-user";
   await prisma.user.create({ data: { id: userId, username: userId, name: "Explorer", passwordHash: await hashPassword("Test123!") } });
@@ -102,14 +144,14 @@ test("forest battles validate ownership and award exactly 10 gold once, includin
     assert.equal(response.body.data.expEarned, 1);
     assert.deepEqual(response.body.data.progression, { level: 2, totalExp: 10, exp: 0, expToNextLevel: 20 });
     assert.equal(response.body.data.levelsGained, 1);
-    assert.equal(response.body.data.wishEarned, 20);
+    assert.equal(response.body.data.wishEarned, 100);
     assert.equal(response.body.data.steps.at(-1).enemyHp, 0);
   }
   assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: "forest-user" } })).gold, 10);
   assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: "forest-other" } })).gold, 0);
   assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: "forest-other" } })).experience, 0);
   assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: "forest-user" } })).experience, 10);
-  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: "forest-user" } })).wishCurrency, created.body.data.wishCurrency + 20);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: "forest-user" } })).wishCurrency, created.body.data.wishCurrency + 100);
   const saved = await agent.get("/api/character").expect(200);
   assert.equal(saved.body.data.gold, 10);
   assert.deepEqual(saved.body.data.progression, { level: 2, totalExp: 10, exp: 0, expToNextLevel: 20 });

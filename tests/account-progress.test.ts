@@ -9,10 +9,10 @@ test("account levels use exponentially growing requirements with EXP carried ove
   ]) assert.deepEqual(accountProgress(total), { level, totalExp: total, exp: progress, expToNextLevel: required });
 });
 
-test("each level gained awards 20 wishes, including several levels in one battle", () => {
+test("each level gained awards 100 wishes, including several levels in one battle", () => {
   assert.deepEqual(levelUpReward(0, 9), { levelsGained: 0, wishEarned: 0 });
-  assert.deepEqual(levelUpReward(9, 10), { levelsGained: 1, wishEarned: 20 });
-  assert.deepEqual(levelUpReward(9, 41), { levelsGained: 2, wishEarned: 40 });
+  assert.deepEqual(levelUpReward(9, 10), { levelsGained: 1, wishEarned: 100 });
+  assert.deepEqual(levelUpReward(9, 41), { levelsGained: 2, wishEarned: 200 });
   assert.deepEqual(levelUpReward(10, 11), { levelsGained: 0, wishEarned: 0 });
   assert.deepEqual(levelUpReward(70, 70), { levelsGained: 0, wishEarned: 0 });
 });

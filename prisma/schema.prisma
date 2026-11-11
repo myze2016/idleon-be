@@ -43,7 +43,9 @@ model User {
   forestDefeats Int @default(0) @map("forest_defeats") @db.UnsignedInt
   forestBossAt Int? @map("forest_boss_at") @db.UnsignedInt
   expeditionVitals Json? @map("expedition_vitals")
+  teamSlots Json? @map("team_slots")
   encounters   Encounter[]
+  artifacts    Artifact[]
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
@@ -58,11 +60,26 @@ model Character {
   weapon    Weapon
   isStarter Boolean @default(false) @map("is_starter")
   skill2Unlocked Boolean @default(false) @map("skill_2_unlocked")
+  upgradeLevel Int @default(0) @map("upgrade_level") @db.UnsignedInt
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
+  artifact Artifact?
 
   @@index([userId, createdAt])
   @@map("characters")
+}
+
+model Artifact {
+  id String @id @default(cuid()) @db.VarChar(30)
+  userId String @map("user_id") @db.VarChar(30)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stat String @db.VarChar(16)
+  characterId String? @unique @map("character_id") @db.VarChar(30)
+  character Character? @relation(fields: [characterId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, createdAt])
+  @@map("artifacts")
 }
 
 model Session {

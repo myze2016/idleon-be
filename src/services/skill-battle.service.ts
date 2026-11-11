@@ -116,10 +116,11 @@ export function simulateSkillBattle(team: Fighter[], opponents: CharacterStats |
         changeBuff(index, { kind: skill.id === "hero" ? "hero" : "burst", amount: skill.id === "hero" ? 20 : 40, expires: at + (skill.id === "hero" ? 7 : 3) });
         emit(index, "team", 0, "buff", skill.name, { targetIds: [unit.fighter.id] }); break;
       default: {
-        const amounts: Record<string, number> = { fireball: 20, inferno: 20, "throw-spear": 20, charge: 40, "heavy-blow": 40, "berserker-blow": 60, slash: 30, "long-shot": 40 };
+        if (!skill.damage) break;
+        const raw = skill.damage.base + stats(unit)[skill.damage.stat];
         if (skill.id === "inferno") {
-          for (let target = 0; target < enemies.length; target++) if (enemyHps[target] > 0) hit(index, 20, true, "skill", skill.name, critical, target);
-        } else hit(index, amounts[skill.id], skill.id === "fireball", "skill", skill.name, critical);
+          for (let target = 0; target < enemies.length; target++) if (enemyHps[target] > 0) hit(index, raw, true, "skill", skill.name, critical, target);
+        } else hit(index, raw, skill.damage.stat === "magic", "skill", skill.name, critical);
       }
     }
     unit.nextAt = at + actionDuration(stats(unit).speed);

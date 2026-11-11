@@ -28,6 +28,11 @@ test("starter grants one currency; wishes atomically spend currency and persist 
   await agent.post("/api/character/wish").set("Origin", "https://other.example").expect(403);
   await agent.post("/api/character/wish").expect(403);
   assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: "wish-user" } })).wishCurrency, 1);
+  await prisma.user.update({ where: { id: "wish-user" }, data: { wishCurrency: 99 } });
+  await agent.post("/api/character/wish").set("Origin", env.corsOrigin).send({ wishCurrency: 100, cost: 1 }).expect(409);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: "wish-user" } })).wishCurrency, 99);
+  assert.equal(await prisma.character.count({ where: { userId: "wish-user" } }), 1);
+  await prisma.user.update({ where: { id: "wish-user" }, data: { wishCurrency: 100 } });
   const results = await Promise.all([1, 2].map(() => agent.post("/api/character/wish").set("Origin", env.corsOrigin).send({ weapon: "invalid", wishCurrency: 100, stats: { hp: 999999 } })));
   assert.deepEqual(results.map((result) => result.status).sort(), [201, 409]);
   const reward = results.find((result) => result.status === 201)!.body.data.reward;
@@ -60,7 +65,7 @@ test("concurrent wishes fill all missing types without duplicates and preserve c
   const agent = request.agent(app);
   await agent.post("/api/auth/login").set("Origin", env.corsOrigin).send({ username: "collector", password: "Test123!" }).expect(200);
   await agent.post("/api/character").set("Origin", env.corsOrigin).send({ name: "First", weapon: "bow" }).expect(201);
-  await prisma.user.update({ where: { id: "collector" }, data: { wishCurrency: 12 } });
+  await prisma.user.update({ where: { id: "collector" }, data: { wishCurrency: 1200 } });
   const results = await Promise.all(Array.from({ length: 12 }, () => agent.post("/api/character/wish").set("Origin", env.corsOrigin).send({ weapon: "bow" })));
   assert.equal(results.filter((result) => result.status === 201).length, 10);
   assert.equal(results.filter((result) => result.status === 409).length, 2);
@@ -70,8 +75,8 @@ test("concurrent wishes fill all missing types without duplicates and preserve c
   const saved = await agent.get("/api/character").expect(200);
   assert.equal(saved.body.data.characters.length, 11);
   assert.deepEqual(new Set(saved.body.data.characters.map((character: { weapon: string }) => character.weapon)), new Set(weaponTypes));
-  assert.equal(saved.body.data.wishCurrency, 2);
+  assert.equal(saved.body.data.wishCurrency, 200);
   const full = await agent.post("/api/character/wish").set("Origin", env.corsOrigin).expect(409);
   assert.equal(full.body.error.message, "You already own all 11 character types");
-  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: "collector" } })).wishCurrency, 2);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: "collector" } })).wishCurrency, 200);
 });
