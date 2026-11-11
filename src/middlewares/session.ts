@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import session from "express-session";
 import { env } from "../config/env.js";
+import { PrismaSessionStore } from "../repositories/session.store.js";
 
 export const sessionCookieName = "idleon.sid";
 export const sessionCookie = {
@@ -12,6 +13,7 @@ export const sessionCookie = {
 
 export const sessionMiddleware = session({
   name: sessionCookieName,
+  store: new PrismaSessionStore(),
   secret: process.env.SESSION_SECRET || randomBytes(32).toString("hex"),
   resave: false,
   saveUninitialized: false,

@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE `users` ADD COLUMN `forest_boss_at` INTEGER UNSIGNED NULL,
+    ADD COLUMN `forest_defeats` INTEGER UNSIGNED NOT NULL DEFAULT 0;

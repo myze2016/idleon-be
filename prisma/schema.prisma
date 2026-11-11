@@ -1,0 +1,90 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum Role {
+  admin
+}
+
+enum Weapon {
+  sword_and_shield @map("sword-and-shield")
+  bow
+  wand
+  staff
+  book
+  spear
+  axe
+  rifle
+  dual_gun        @map("dual-gun")
+  great_sword     @map("great-sword")
+  dual_knife      @map("dual-knife")
+}
+
+model User {
+  id           String     @id @default(cuid()) @db.VarChar(30)
+  username     String     @unique @db.VarChar(100)
+  name         String     @db.VarChar(100)
+  passwordHash String     @map("password_hash") @db.VarChar(255)
+  role         Role       @default(admin)
+  characters   Character[]
+  starterCreated Boolean @default(false) @map("starter_created")
+  wishCurrency Int @default(0) @map("wish_currency")
+  gold         Int @default(0) @db.UnsignedInt
+  experience   Int @default(0) @db.UnsignedInt
+  meadowDefeats Int @default(0) @map("meadow_defeats") @db.UnsignedInt
+  meadowBossAt Int? @map("meadow_boss_at") @db.UnsignedInt
+  forestDefeats Int @default(0) @map("forest_defeats") @db.UnsignedInt
+  forestBossAt Int? @map("forest_boss_at") @db.UnsignedInt
+  expeditionVitals Json? @map("expedition_vitals")
+  encounters   Encounter[]
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+model Character {
+  id        String   @id @default(cuid()) @db.VarChar(30)
+  userId    String   @map("user_id") @db.VarChar(30)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String   @db.VarChar(24)
+  weapon    Weapon
+  isStarter Boolean @default(false) @map("is_starter")
+  skill2Unlocked Boolean @default(false) @map("skill_2_unlocked")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId, createdAt])
+  @@map("characters")
+}
+
+model Session {
+  id        String   @id @db.VarChar(128)
+  data      String   @db.LongText
+  expiresAt DateTime @map("expires_at")
+
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model Encounter {
+  id        String @id @default(cuid()) @db.VarChar(30)
+  userId    String @map("user_id") @db.VarChar(30)
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enemyType String @map("enemy_type") @db.VarChar(24)
+  location String @default("meadow") @db.VarChar(16)
+  battleId String? @map("battle_id") @db.VarChar(30)
+  teamIds   Json @map("team_ids")
+  result    Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, createdAt])
+  @@map("encounters")
+}

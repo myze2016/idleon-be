@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE `users` ADD COLUMN `experience` INTEGER UNSIGNED NOT NULL DEFAULT 0;
