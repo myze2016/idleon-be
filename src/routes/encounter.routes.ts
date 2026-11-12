@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireAuth } from "../middlewares/require-auth.js";
-import { env } from "../config/env.js";
+import { isAllowedOrigin } from "../config/origin.js";
 import { HttpError } from "../utils/http-error.js";
 import { spawnEncounter, resolveEncounter, resolveEncounters, endExpedition } from "../repositories/expedition.repository.js";
 import { isDeepSea } from "../models/deepsea.js";
@@ -10,7 +10,7 @@ export const encounterRouter = Router();
 encounterRouter.use(requireAuth);
 encounterRouter.use((req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
-  if (req.get("origin") !== env.corsOrigin) return next(new HttpError(403, "Request origin is not allowed"));
+  if (!isAllowedOrigin(req.get("origin"))) return next(new HttpError(403, "Request origin is not allowed"));
   next();
 });
 encounterRouter.post("/", async (req, res) => {

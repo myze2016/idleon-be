@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { env } from "../config/env.js";
+import { isAllowedOrigin } from "../config/origin.js";
 import { getCharacter, postCharacter, removeCharacter, wishCharacter, unlockCharacterSkill } from "../controllers/character.controller.js";
 import { requireAuth } from "../middlewares/require-auth.js";
 import { HttpError } from "../utils/http-error.js";
@@ -10,7 +10,7 @@ export const characterRouter = Router();
 characterRouter.use(requireAuth);
 characterRouter.use((req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
-  if (["POST", "DELETE"].includes(req.method) && req.get("origin") !== env.corsOrigin) {
+  if (["POST", "DELETE"].includes(req.method) && !isAllowedOrigin(req.get("origin"))) {
     return next(new HttpError(403, "Request origin is not allowed"));
   }
   next();

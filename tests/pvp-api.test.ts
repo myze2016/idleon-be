@@ -1,0 +1,85 @@
+import "./setup.js";
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import request from "supertest";
+import { app } from "../src/app.js";
+import { env } from "../src/config/env.js";
+import { prisma } from "../src/lib/prisma.js";
+import { hashPassword } from "../src/utils/password.js";
+import { pvpPhase } from "../src/repositories/pvp.repository.js";
+import { isAllowedOrigin } from "../src/config/origin.js";
+
+test("Two accounts select a 6v1 team, ready up once, share countdown, and preserve PvE data", async () => {
+  const passwordHash = await hashPassword("Test123!");
+  for (const id of ["pvp-a", "pvp-b", "pvp-c"]) await prisma.user.create({ data: { id, username: id, name: id, passwordHash, gold: 123, experience: 4, wishCurrency: 27, expeditionVitals: { preserved: { hp: 8, mp: 3 } } } });
+  const a = request.agent(app), b = request.agent(app), c = request.agent(app);
+  for (const [agent, username] of [[a, "pvp-a"], [b, "pvp-b"], [c, "pvp-c"]] as const) await agent.post("/api/auth/login").set("Origin", env.corsOrigin).send({ username, password: "Test123!" }).expect(200);
+  const heroA = await prisma.character.create({ data: { userId: "pvp-a", name: "Axeman", weapon: "axe", upgradeLevel: 3 } });
+  const heroB = await prisma.character.create({ data: { userId: "pvp-b", name: "Bow", weapon: "bow" } });
+  const teamA = [heroA.id];
+  const weapons = ["staff", "wand", "book", "spear", "rifle"] as const;
+  for (const [index, weapon] of weapons.entries()) teamA.push((await prisma.character.create({ data: { userId: "pvp-a", name: `Teammate ${index}`, weapon } })).id);
+  await request(app).get("/api/pvp").expect(401);
+  await a.post("/api/pvp").expect(403);
+  const code = (await a.post("/api/pvp").set("Origin", env.corsOrigin).expect(201)).body.data.code;
+  await a.post("/api/pvp").set("Origin", env.corsOrigin).expect(409);
+  const path = `/api/pvp/${code}`;
+  await c.get(path).expect(403);
+  await a.post(`${path}/join`).set("Origin", env.corsOrigin).expect(409);
+  await b.post(`${path}/join`).set("Origin", env.corsOrigin).expect(200);
+  await c.post(`${path}/join`).set("Origin", env.corsOrigin).expect(409);
+  await b.post(`${path}/select`).set("Origin", env.corsOrigin).send({ characterId: heroA.id }).expect(400);
+  for (const characterIds of [[heroA.id, heroA.id], [...teamA, heroB.id], [heroB.id], ["missing"], "invalid"]) {
+    await a.post(`${path}/select`).set("Origin", env.corsOrigin).send({ characterIds }).expect(400);
+  }
+  await a.post(`${path}/select`).set("Origin", env.corsOrigin).send({ characterIds: [] }).expect(200);
+  await a.post(`${path}/ready`).set("Origin", env.corsOrigin).send({ ready: true }).expect(400);
+  await a.post(`${path}/select`).set("Origin", env.corsOrigin).send({ characterId: heroA.id, stats: { hp: 99999 } }).expect(200);
+  await a.post(`${path}/select`).set("Origin", env.corsOrigin).send({ characterIds: teamA }).expect(200);
+  await b.post(`${path}/select`).set("Origin", env.corsOrigin).send({ characterId: heroB.id }).expect(200);
+  await a.post(`${path}/ready`).set("Origin", env.corsOrigin).send({ ready: true }).expect(200);
+  const hidden = (await a.get(path).expect(200)).body.data;
+  assert.equal(hidden.players[1].characterId, null); assert.equal(hidden.players[1].fighter, null);
+  assert.deepEqual(hidden.players[1].characterIds, []); assert.deepEqual(hidden.players[1].fighters, []);
+  assert.deepEqual(hidden.players[0].characterIds, teamA);
+  await a.post(`${path}/select`).set("Origin", env.corsOrigin).send({ characterId: heroA.id }).expect(409);
+  const before = Date.now();
+  const ready = await Promise.all([1, 2].map(() => b.post(`${path}/ready`).set("Origin", env.corsOrigin).send({ ready: true })));
+  assert.deepEqual(ready.map((response) => response.status).sort(), [200, 409]);
+  const host = (await a.get(path).expect(200)).body.data, guest = (await b.get(path).expect(200)).body.data;
+  assert.equal(host.phase, "countdown"); assert.equal(host.startsAt, guest.startsAt);
+  assert.ok(Date.parse(host.startsAt) >= before + 4900);
+  assert.equal(host.result, null); assert.equal(guest.result, null);
+  assert.equal(host.players[0].fighter.stats.atk, 35);
+  assert.equal(host.players[0].fighters.length, 6); assert.equal(host.players[1].fighters.length, 1);
+  assert.deepEqual(host.players[0].fighters.map((fighter: { id: string }) => fighter.id), teamA);
+  await prisma.character.update({ where: { id: heroA.id }, data: { upgradeLevel: 100 } });
+  assert.equal((await a.get(path).expect(200)).body.data.players[0].fighter.stats.atk, 35);
+  const stored = await prisma.pvpRoom.findUniqueOrThrow({ where: { code } });
+  assert.equal(pvpPhase(stored, stored.startsAt!.getTime() - 1), "countdown");
+  assert.equal(pvpPhase(stored, stored.startsAt!.getTime()), "battle");
+  await prisma.pvpRoom.update({ where: { code }, data: { startsAt: new Date(Date.now() - 181000) } });
+  const resultA = (await a.get(path).expect(200)).body.data, resultB = (await b.get(path).expect(200)).body.data;
+  assert.equal(resultA.phase, "complete"); assert.deepEqual(resultA.result, resultB.result);
+  assert.equal(resultA.result.fighters.length, 7);
+  assert.ok(resultA.result.steps.every((step: { hp: number[]; mp: number[] }) => step.hp.length === 7 && step.mp.length === 7));
+  for (const id of ["pvp-a", "pvp-b"]) {
+    const user = await prisma.user.findUniqueOrThrow({ where: { id } });
+    assert.equal(user.gold, 123); assert.equal(user.experience, 4); assert.equal(user.wishCurrency, 27);
+    assert.deepEqual(user.expeditionVitals, { preserved: { hp: 8, mp: 3 } });
+  }
+  await a.post(`${path}/leave`).set("Origin", env.corsOrigin).expect(200);
+  const afterLeave = (await b.get(path).expect(200)).body.data;
+  assert.equal(afterLeave.phase, "complete");
+  assert.deepEqual(afterLeave.result, resultB.result);
+});
+
+test("LAN origins use the configured frontend port and reject unrelated origins", () => {
+  assert.equal(isAllowedOrigin("http://192.168.1.12:3020"), true);
+  assert.equal(isAllowedOrigin("http://10.0.0.8:3020"), true);
+  assert.equal(isAllowedOrigin("http://172.20.1.4:3020"), true);
+  assert.equal(isAllowedOrigin("http://192.168.1.12:9999"), false);
+  assert.equal(isAllowedOrigin("http://192.168.1.999:3020"), false);
+  assert.equal(isAllowedOrigin("http://evil.example:3020"), false);
+  assert.equal(isAllowedOrigin(undefined), false);
+});

@@ -1,0 +1,21 @@
+CREATE TABLE `pvp_rooms` (
+  `id` VARCHAR(30) NOT NULL,
+  `code` VARCHAR(12) NOT NULL,
+  `host_id` VARCHAR(30) NOT NULL,
+  `guest_id` VARCHAR(30) NULL,
+  `host_character_id` VARCHAR(30) NULL,
+  `guest_character_id` VARCHAR(30) NULL,
+  `host_ready` BOOLEAN NOT NULL DEFAULT false,
+  `guest_ready` BOOLEAN NOT NULL DEFAULT false,
+  `status` VARCHAR(16) NOT NULL DEFAULT 'waiting',
+  `starts_at` DATETIME(3) NULL,
+  `result` JSON NULL,
+  `expires_at` DATETIME(3) NOT NULL,
+  `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updated_at` DATETIME(3) NOT NULL,
+  PRIMARY KEY (`id`), UNIQUE INDEX `pvp_rooms_code_key` (`code`),
+  INDEX `pvp_rooms_host_id_status_idx` (`host_id`, `status`),
+  INDEX `pvp_rooms_guest_id_status_idx` (`guest_id`, `status`),
+  CONSTRAINT `pvp_rooms_host_fkey` FOREIGN KEY (`host_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `pvp_rooms_guest_fkey` FOREIGN KEY (`guest_id`) REFERENCES `users` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

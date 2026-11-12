@@ -9,6 +9,12 @@ in production and does not reset an existing account's password.
 
 Authentication endpoints: `POST /api/auth/login`, `GET /api/auth/me`, and
 `POST /api/auth/logout`. POST requests must include the configured frontend Origin.
+`POST /api/auth/register` accepts `username`, `password`, and `confirmPassword`,
+creates a player account, and signs it in using a fresh session. Usernames use
+3–30 letters, numbers, or underscores, are saved lowercase, and must be unique.
+Passwords require 8–256 characters and are stored using salted scrypt hashes.
+Registration is limited to 10 attempts per IP per 15 minutes. New accounts choose
+a starter in `/game`; starter creation grants the normal 100 wish currency once.
 Sessions use HTTP-only cookies, expire after eight hours, and are stored in MariaDB.
 Keep `SESSION_SECRET` stable in `.env` so sessions survive backend restarts. Use a
 long random value, configure HTTPS for production, and change the development
@@ -31,6 +37,45 @@ The frontend origin defaults to http://localhost:3020; configure it with `CORS_O
 Environment variables are validated at startup. Never commit `.env`.
 
 ## Database
+
+## LAN PvP
+
+The room's PvP button opens a team auto-battle lobby. Create a room, then have the
+other account join its code or select it from Open rooms. Each player chooses
+1–6 different owned characters in formation order and presses Ready. Uneven teams
+are allowed, including 6v1. Use room team copies the saved formation; individual
+selections can be added or removed before readying. The first three lead and the
+next three stay behind. Both being ready starts a shared five-second countdown,
+with teams approaching from opposite sides in the expedition-style battlefield.
+Current upgrades, artifacts, and unlocked skills are snapshotted;
+fighters start with full HP/MP and regenerate 5 MP per second. Battles draw after
+180 seconds. All living fighters take turns independently, retargeting the first
+living opponent. Area attacks hit all opposing characters, Kent strikes two and
+bounces between targets, and support skills affect living teammates. Defeated
+characters disappear; a whole team must fall to lose. PvP does not change PvE
+health, mana, gold, EXP, or wishes. Leaving
+before the battle finishes cancels the room for both players.
+
+The login screen's Create account button registers additional players.
+`npm run db:seed` also creates `player2` / `Player123!`
+without resetting existing accounts. On first login, player2 chooses a starter.
+Use separate devices or a normal browser and an incognito window for two sessions.
+
+For LAN play, run both servers on one PC. Both devices open
+`http://<server-PC-private-IPv4>:3020/login`; the frontend automatically contacts
+that same host on port 8020. Allow incoming TCP 3020 and 8020 through the host's
+firewall if needed. Development mode permits private IPv4 frontend origins on the
+configured frontend port. Production permits only `CORS_ORIGIN`. A custom
+`NEXT_PUBLIC_API_URL` must also be reachable from the other device.
+For an address outside the private IPv4 ranges, set `CORS_ORIGIN` in `.env` to
+the exact frontend origin (for example `http://172.50.254.22:3020`) and add its
+hostname to the frontend's `allowedDevOrigins`. Restart both servers afterward.
+
+Rooms and results persist in MariaDB, expire after 30 minutes, and are polled by
+both clients. The server owns character validation, the countdown, and the combat
+result; clients play the same saved event timeline.
+
+## Game data
 
 Fish Emperor Lord (the Royal Palace boss, internal ID `fishpeople-lord`) has a
 10% chance per defeat to drop a Deep Sea Artifact. This drop-only equipment grants

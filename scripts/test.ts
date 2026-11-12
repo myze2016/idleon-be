@@ -29,7 +29,7 @@ try {
   run(["node_modules/prisma/build/index.js", "migrate", "deploy"]);
   const { prisma } = await import("../src/lib/prisma.js");
   try {
-    await prisma.user.create({ data: { id: "test-admin", username: "admin", name: "Admin", passwordHash: await hashPassword("Admin123!") } });
+    await prisma.user.create({ data: { id: "test-admin", username: "admin", name: "Admin", role: "admin", passwordHash: await hashPassword("Admin123!") } });
   } finally { await prisma.$disconnect(); }
   run(["--import", "tsx", "--test", "--test-concurrency=1", ...readdirSync("tests").filter((file) => file.endsWith(".test.ts")).map((file) => `tests/${file}`)]);
 } catch (error) {

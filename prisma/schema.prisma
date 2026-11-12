@@ -11,6 +11,7 @@ datasource db {
 
 enum Role {
   admin
+  player
 }
 
 enum Weapon {
@@ -35,7 +36,7 @@ model User {
   username     String     @unique @db.VarChar(100)
   name         String     @db.VarChar(100)
   passwordHash String     @map("password_hash") @db.VarChar(255)
-  role         Role       @default(admin)
+  role         Role       @default(player)
   characters   Character[]
   starterCreated Boolean @default(false) @map("starter_created")
   wishCurrency Int @default(0) @map("wish_currency")
@@ -58,10 +59,37 @@ model User {
   encounters   Encounter[]
   artifacts    Artifact[]
   questItems   QuestItem[]
+  pvpHosted PvpRoom[] @relation("PvpHost")
+  pvpJoined PvpRoom[] @relation("PvpGuest")
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
   @@map("users")
+}
+
+model PvpRoom {
+  id String @id @default(cuid()) @db.VarChar(30)
+  code String @unique @db.VarChar(12)
+  hostId String @map("host_id") @db.VarChar(30)
+  host User @relation("PvpHost", fields: [hostId], references: [id], onDelete: Cascade)
+  guestId String? @map("guest_id") @db.VarChar(30)
+  guest User? @relation("PvpGuest", fields: [guestId], references: [id], onDelete: SetNull)
+  hostCharacterId String? @map("host_character_id") @db.VarChar(30)
+  guestCharacterId String? @map("guest_character_id") @db.VarChar(30)
+  hostCharacterIds Json? @map("host_character_ids")
+  guestCharacterIds Json? @map("guest_character_ids")
+  hostReady Boolean @default(false) @map("host_ready")
+  guestReady Boolean @default(false) @map("guest_ready")
+  status String @default("waiting") @db.VarChar(16)
+  startsAt DateTime? @map("starts_at")
+  result Json?
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([hostId, status])
+  @@index([guestId, status])
+  @@map("pvp_rooms")
 }
 
 model QuestItem {
