@@ -1,0 +1,70 @@
+import "./setup.js";
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import request from "supertest";
+import { app } from "../src/app.js";
+import { prisma } from "../src/lib/prisma.js";
+import { env } from "../src/config/env.js";
+import { hashPassword } from "../src/utils/password.js";
+import { resolveEncounters } from "../src/repositories/expedition.repository.js";
+import { characterState } from "../src/repositories/character.repository.js";
+
+test("Map drop persists, permits failed rolls to retry, and stays unique across concurrent battles and roster resets", async () => {
+  const userId = "map-user";
+  await prisma.user.create({ data: { id: userId, username: userId, name: "Map hunter", passwordHash: await hashPassword("Test123!") } });
+  const fighter = await prisma.character.create({ data: { userId, name: "Hunter", weapon: "axe", upgradeLevel: 1000 } });
+  assert.equal((await characterState(userId)).deepSeaMothUnlocked, false);
+  const encounter = () => prisma.encounter.create({ data: { userId, enemyType: "fishpeople-guide", location: "harbor", teamIds: [fighter.id] } });
+  const missed = await encounter();
+  const miss = await resolveEncounters(userId, [missed.id], () => 1);
+  assert.deepEqual(miss.questItemsEarned, []);
+  assert.equal(await prisma.questItem.count({ where: { userId } }), 0);
+  assert.equal((await characterState(userId)).deepSeaMothUnlocked, false);
+  const bosses = await Promise.all([encounter(), encounter()]);
+  const results = await Promise.all(bosses.map((boss) => resolveEncounters(userId, [boss.id], () => 0)));
+  assert.equal(results.filter((result) => Array.isArray(result.questItemsEarned) && result.questItemsEarned.length === 1).length, 1);
+  assert.equal(await prisma.questItem.count({ where: { userId } }), 1);
+  await resolveEncounters(userId, [bosses[0].id], () => { throw Error("Replay must not roll loot again"); });
+  assert.equal(await prisma.questItem.count({ where: { userId } }), 1);
+  const later = await encounter();
+  const repeat = await resolveEncounters(userId, [later.id], () => { throw Error("Owned map must not roll again"); });
+  assert.deepEqual(repeat.questItemsEarned, []);
+  const agent = request.agent(app);
+  await agent.post("/api/auth/login").set("Origin", env.corsOrigin).send({ username: userId, password: "Test123!" }).expect(200);
+  assert.equal((await agent.get("/api/character").expect(200)).body.data.deepSeaMothUnlocked, true);
+  const inventory = (await agent.get("/api/character").expect(200)).body.data.questItems;
+  assert.equal(inventory.length, 1); assert.equal(inventory[0].name, "Deepsea Moth Map"); assert.equal(inventory[0].quantity, 1);
+  await agent.post("/api/encounters/return").set("Origin", env.corsOrigin).expect(204);
+  await agent.delete("/api/character").set("Origin", env.corsOrigin).expect(204);
+  assert.deepEqual((await agent.get("/api/character").expect(200)).body.data.questItems, inventory);
+  assert.equal((await agent.get("/api/character").expect(200)).body.data.deepSeaMothUnlocked, true);
+  await assert.rejects(prisma.questItem.create({ data: { userId, itemId: "deepsea-moth-map" } }));
+});
+
+test("An undefeated Guide never drops its quest item", async () => {
+  const userId = "map-loss-user";
+  await prisma.user.create({ data: { id: userId, username: userId, name: "Unlucky", passwordHash: "unused" } });
+  const fighter = await prisma.character.create({ data: { userId, name: "Novice", weapon: "axe" } });
+  const boss = await prisma.encounter.create({ data: { userId, enemyType: "fishpeople-guide", location: "harbor", teamIds: [fighter.id] } });
+  const battle = await resolveEncounters(userId, [boss.id], () => { throw Error("A surviving Guide cannot drop loot"); });
+  assert.equal(battle.won, false); assert.deepEqual(battle.questItemsEarned, []);
+  assert.equal(await prisma.questItem.count({ where: { userId } }), 0);
+});
+
+test("Zugwang evidence rolls on victory and remains unique across concurrent awards and replays", async () => {
+  const userId = "evidence-user";
+  await prisma.user.create({ data: { id: userId, username: userId, name: "Evidence hunter", passwordHash: "unused" } });
+  const fighter = await prisma.character.create({ data: { userId, name: "Hunter", weapon: "axe", upgradeLevel: 1000 } });
+  const encounter = () => prisma.encounter.create({ data: { userId, enemyType: "zugwang", location: "tourney", teamIds: [fighter.id] } });
+  const missed = await encounter();
+  assert.deepEqual((await resolveEncounters(userId, [missed.id], () => 1)).questItemsEarned, []);
+  const bosses = await Promise.all([encounter(), encounter()]);
+  const results = await Promise.all(bosses.map((boss) => resolveEncounters(userId, [boss.id], () => 0)));
+  assert.equal(results.filter((result) => Array.isArray(result.questItemsEarned) && result.questItemsEarned.length === 1).length, 1);
+  const item = await prisma.questItem.findUniqueOrThrow({ where: { userId_itemId: { userId, itemId: "zugwangs-evidence" } } });
+  assert.equal(item.itemId, "zugwangs-evidence");
+  await resolveEncounters(userId, [bosses[0].id], () => { throw Error("Replay must not roll"); });
+  assert.equal(await prisma.questItem.count({ where: { userId } }), 1);
+  const later = await encounter();
+  assert.deepEqual((await resolveEncounters(userId, [later.id], () => { throw Error("Owned evidence must not roll"); })).questItemsEarned, []);
+});

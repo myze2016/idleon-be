@@ -6,8 +6,11 @@ export interface CharacterStats {
 }
 
 export const baseStats: Record<WeaponType, CharacterStats> = {
+  glaive: { hp: 100, mp: 100, atk: 10, def: 0, magic: 0, magicDef: 0, speed: 0, range: "range" },
+  "ice-staff": { hp: 50, mp: 150, atk: 10, def: 0, magic: 20, magicDef: 20, speed: 0, range: "melee" },
+  "dual-axe": { hp: 150, mp: 50, atk: 20, def: 0, magic: 0, magicDef: 20, speed: 0, range: "melee" },
   "sword-and-shield": { hp: 100, mp: 100, atk: 10, def: 10, magic: 0, magicDef: 10, speed: 0, range: "melee" },
-  bow: { hp: 100, mp: 100, atk: 10, def: 0, magic: 0, magicDef: 10, speed: 10, range: "melee" },
+  bow: { hp: 100, mp: 100, atk: 10, def: 0, magic: 0, magicDef: 10, speed: 10, range: "range" },
   wand: { hp: 50, mp: 150, atk: 0, def: 0, magic: 10, magicDef: 10, speed: 10, range: "melee" },
   staff: { hp: 50, mp: 150, atk: 0, def: 0, magic: 15, magicDef: 10, speed: 0, range: "melee" },
   book: { hp: 100, mp: 100, atk: 0, def: 0, magic: 10, magicDef: 15, speed: 10, range: "melee" },

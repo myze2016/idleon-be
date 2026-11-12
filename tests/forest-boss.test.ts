@@ -7,7 +7,7 @@ import { prisma } from "../src/lib/prisma.js";
 import { env } from "../src/config/env.js";
 import { hashPassword } from "../src/utils/password.js";
 
-test("Forest chief uses its own defeat cycle and rewards 10 gold without boss wishes", async () => {
+test("Forest chief uses its own defeat cycle and rewards 20 gold without boss wishes", async () => {
   await prisma.user.create({ data: { id: "chief-user", username: "chief-user", name: "Chief hunter", passwordHash: await hashPassword("Test123!") } });
   const agent = request.agent(app);
   await agent.post("/api/auth/login").set("Origin", env.corsOrigin).send({ username: "chief-user", password: "Test123!" }).expect(200);
@@ -29,16 +29,16 @@ test("Forest chief uses its own defeat cycle and rewards 10 gold without boss wi
   const chief = spawns.find((response) => response.body.data.boss)!.body.data;
   assert.equal(chief.type, "coco-klan-chief"); assert.equal(chief.name, "Coco Klan Chief");
   assert.deepEqual(chief.stats, { hp: 500, mp: 0, atk: 40, def: 10, magic: 0, magicDef: 0, speed: 0, range: "range" });
-  assert.equal(chief.gold, 10); assert.equal(chief.wishCurrency, 0);
+  assert.equal(chief.gold, 20); assert.equal(chief.wishCurrency, 0);
   const before = await prisma.user.findUniqueOrThrow({ where: { id: "chief-user" } });
   const rewards = await Promise.all([1, 2].map(() => agent.post(`/api/encounters/${chief.id}/resolve`).set("Origin", env.corsOrigin)));
   for (const reward of rewards) {
     assert.equal(reward.status, 200); assert.equal(reward.body.data.won, true);
-    assert.equal(reward.body.data.goldEarned, 10); assert.equal(reward.body.data.wishEarned, 0);
+    assert.equal(reward.body.data.goldEarned, 20); assert.equal(reward.body.data.wishEarned, 0);
     assert.equal(reward.body.data.forestProgress.defeated, 0);
   }
   const saved = await prisma.user.findUniqueOrThrow({ where: { id: "chief-user" } });
-  assert.equal(saved.gold, before.gold + 10); assert.equal(saved.wishCurrency, before.wishCurrency);
+  assert.equal(saved.gold, before.gold + 20); assert.equal(saved.wishCurrency, before.wishCurrency);
   assert.equal(saved.forestDefeats, 0); assert.ok(saved.forestBossAt! >= 38 && saved.forestBossAt! <= 45);
   assert.equal(saved.meadowDefeats, 13); assert.equal(saved.meadowBossAt, 29);
   await agent.delete("/api/character").set("Origin", env.corsOrigin).expect(204);

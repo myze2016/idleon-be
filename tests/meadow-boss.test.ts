@@ -10,7 +10,7 @@ import { simulateGroupBattle } from "../src/services/battle.service.js";
 import { baseStats } from "../src/models/character-stats.js";
 import { enemies } from "../src/models/enemy.js";
 
-test("Meadow boss triggers at a saved 38–45-kill target and awards 40 gold without boss wishes", async () => {
+test("Meadow boss triggers at a saved 38–45-kill target and awards 80 gold without boss wishes", async () => {
   await prisma.user.create({ data: { id: "boss-user", username: "boss-user", name: "Boss hunter", passwordHash: await hashPassword("Test123!") } });
   const agent = request.agent(app);
   await agent.post("/api/auth/login").set("Origin", env.corsOrigin).send({ username: "boss-user", password: "Test123!" }).expect(200);
@@ -33,15 +33,15 @@ test("Meadow boss triggers at a saved 38–45-kill target and awards 40 gold wit
   const boss = pair.find((response) => response.body.data.boss)!.body.data;
   assert.equal(boss.type, "mutant-boar");
   assert.deepEqual(boss.stats, { hp: 300, mp: 0, atk: 30, def: 5, magic: 0, magicDef: 0, speed: 0, range: "melee" });
-  assert.equal(boss.gold, 40); assert.equal(boss.wishCurrency, 0);
+  assert.equal(boss.gold, 80); assert.equal(boss.wishCurrency, 0);
   const before = await prisma.user.findUniqueOrThrow({ where: { id: "boss-user" } });
   const resolved = await Promise.all([1, 2].map(() => agent.post(`/api/encounters/${boss.id}/resolve`).set("Origin", env.corsOrigin)));
   for (const response of resolved) {
     assert.equal(response.status, 200); assert.equal(response.body.data.won, true);
-    assert.equal(response.body.data.goldEarned, 40); assert.equal(response.body.data.wishEarned, 0);
+    assert.equal(response.body.data.goldEarned, 80); assert.equal(response.body.data.wishEarned, 0);
   }
   const after = await prisma.user.findUniqueOrThrow({ where: { id: "boss-user" } });
-  assert.equal(after.gold, before.gold + 40); assert.equal(after.wishCurrency, before.wishCurrency);
+  assert.equal(after.gold, before.gold + 80); assert.equal(after.wishCurrency, before.wishCurrency);
   assert.equal(after.meadowDefeats, 0); assert.ok(after.meadowBossAt! >= 38 && after.meadowBossAt! <= 45);
   const forest = await spawn("forest").expect(201);
   await agent.post(`/api/encounters/${forest.body.data.id}/resolve`).set("Origin", env.corsOrigin).expect(200);
@@ -63,7 +63,7 @@ test("multiple active monsters resolve as one owned battle without duplicate rew
   const result = await agent.post("/api/encounters/resolve").set("Origin", env.corsOrigin).send({ encounterIds }).expect(200);
   const defeated = result.body.data.enemyHps.filter((hp: number) => hp === 0).length;
   assert.equal(result.body.data.enemies.length, 2);
-  assert.equal(result.body.data.goldEarned, defeated * 10); assert.equal(result.body.data.expEarned, defeated);
+  assert.equal(result.body.data.goldEarned, defeated * 20); assert.equal(result.body.data.expEarned, defeated);
   const inferno = result.body.data.steps.filter((step: { label: string }) => step.label === "Inferno");
   assert.ok(new Set(inferno.map((step: { enemyIndex: number }) => step.enemyIndex)).size === 2);
   const before = await prisma.user.findUniqueOrThrow({ where: { id: "group-user" } });

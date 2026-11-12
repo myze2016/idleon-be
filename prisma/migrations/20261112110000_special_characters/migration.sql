@@ -1,0 +1,1 @@
+ALTER TABLE `characters` MODIFY COLUMN `weapon` ENUM('sword-and-shield', 'bow', 'wand', 'staff', 'book', 'spear', 'axe', 'rifle', 'dual-gun', 'great-sword', 'dual-knife', 'glaive', 'ice-staff', 'dual-axe') NOT NULL;

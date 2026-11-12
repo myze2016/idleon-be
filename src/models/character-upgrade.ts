@@ -3,6 +3,11 @@ import type { CharacterStats } from "./character-stats.js";
 
 export const UPGRADE_COST = 1_000;
 export const characterUpgrades: Partial<Record<WeaponType, { stat: Exclude<keyof CharacterStats, "range">; label: string; amount: number }>> = {
+  glaive: { stat: "atk", label: "ATK", amount: 5 },
+  "ice-staff": { stat: "magic", label: "Magic", amount: 5 },
+  "dual-axe": { stat: "atk", label: "ATK", amount: 5 },
+  "sword-and-shield": { stat: "hp", label: "HP", amount: 10 },
+  "dual-knife": { stat: "speed", label: "Speed", amount: 5 },
   rifle: { stat: "atk", label: "ATK", amount: 5 },
   "great-sword": { stat: "atk", label: "ATK", amount: 5 },
   book: { stat: "mp", label: "MP", amount: 10 },

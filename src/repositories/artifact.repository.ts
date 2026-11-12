@@ -1,6 +1,6 @@
 import { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../lib/prisma.js";
-import { ARTIFACT_PRICE, artifactCatalog } from "../models/artifact.js";
+import { ARTIFACT_PRICE, ARTIFACT_ENHANCEMENT_COST, artifactCatalog } from "../models/artifact.js";
 import { characterState } from "./character.repository.js";
 import { HttpError } from "../utils/http-error.js";
 
@@ -9,7 +9,7 @@ export async function buyArtifact(userId: string, stat: string) {
   await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
     const paid = await tx.user.updateMany({ where: { id: userId, starterCreated: true, gold: { gte: ARTIFACT_PRICE } }, data: { gold: { decrement: ARTIFACT_PRICE } } });
-    if (!paid.count) throw new HttpError(409, "You need 1,000 gold to buy an artifact");
+    if (!paid.count) throw new HttpError(409, "You need 500 gold to buy an artifact");
     await tx.artifact.create({ data: { userId, stat } });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   return characterState(userId);
@@ -27,6 +27,18 @@ export async function equipArtifact(userId: string, characterId: string, artifac
     }
     await tx.artifact.updateMany({ where: { userId, characterId }, data: { characterId: null } });
     if (artifactId) await tx.artifact.update({ where: { id: artifactId }, data: { characterId } });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+  return characterState(userId);
+}
+
+export async function enhanceArtifact(userId: string, artifactId: string) {
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+    const artifact = await tx.artifact.findFirst({ where: { id: artifactId, userId } });
+    if (!artifact) throw new HttpError(404, "Artifact not found");
+    const paid = await tx.user.updateMany({ where: { id: userId, gold: { gte: ARTIFACT_ENHANCEMENT_COST } }, data: { gold: { decrement: ARTIFACT_ENHANCEMENT_COST } } });
+    if (!paid.count) throw new HttpError(409, "You need 1,000 gold to enhance an artifact");
+    await tx.artifact.update({ where: { id: artifactId }, data: { enhancementLevel: { increment: 1 } } });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   return characterState(userId);
 }

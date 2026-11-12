@@ -9,12 +9,13 @@ import { hashPassword } from "../src/utils/password.js";
 import { baseStats } from "../src/models/character-stats.js";
 import type { Weapon } from "../src/generated/prisma/client.js";
 
-test("repeatable upgrades charge 1k, apply all eight specified bonuses, stack with artifacts, and persist", async () => {
+test("repeatable upgrades charge 1k, apply all ten specified bonuses, stack with artifacts, and persist", async () => {
   const userId = "upgrade-user";
   await prisma.user.create({ data: { id: userId, username: userId, name: "Upgrader", passwordHash: await hashPassword("Test123!"), starterCreated: true, gold: 200000 } });
   const agent = request.agent(app);
   await agent.post("/api/auth/login").set("Origin", env.corsOrigin).send({ username: userId, password: "Test123!" }).expect(200);
   const definitions = [
+    ["sword-and-shield", "hp", 10], ["dual-knife", "speed", 5],
     ["rifle", "atk", 5], ["great-sword", "atk", 5], ["book", "mp", 10], ["staff", "magic", 5],
     ["axe", "atk", 5], ["spear", "atk", 5], ["dual-gun", "speed", 5], ["bow", "speed", 5],
   ] as const;
@@ -42,6 +43,11 @@ test("repeatable upgrades charge 1k, apply all eight specified bonuses, stack wi
       const battle = await agent.post(`/api/encounters/${spawn.body.data.id}/resolve`).set("Origin", env.corsOrigin).expect(200);
       assert.deepEqual(battle.body.data.initialTeamMp, [120]);
     }
+    if (weapon === "sword-and-shield") {
+      const spawn = await agent.post("/api/encounters").set("Origin", env.corsOrigin).send({ location: "meadow", teamIds: [character.id], newExpedition: true }).expect(201);
+      const battle = await agent.post(`/api/encounters/${spawn.body.data.id}/resolve`).set("Origin", env.corsOrigin).expect(200);
+      assert.deepEqual(battle.body.data.initialTeamHp, [120]);
+    }
   }
   await agent.post("/api/auth/logout").set("Origin", env.corsOrigin).expect(204);
   await agent.post("/api/auth/login").set("Origin", env.corsOrigin).send({ username: userId, password: "Test123!" }).expect(200);
@@ -50,6 +56,9 @@ test("repeatable upgrades charge 1k, apply all eight specified bonuses, stack wi
   const bow = restored.body.data.characters.find((member: { weapon: string }) => member.weapon === "bow");
   assert.equal(bow.timing.attackInterval, 1 / 1.2);
   assert.equal(bow.timing.spellCastTime, 1 / 1.2);
+  const assassin = restored.body.data.characters.find((member: { weapon: string }) => member.weapon === "dual-knife");
+  assert.equal(assassin.timing.attackInterval, 1 / 1.2);
+  assert.equal(assassin.timing.spellCastTime, 1 / 1.2);
 });
 
 test("upgrades validate ownership and class, and concurrent requests cannot overspend", async () => {

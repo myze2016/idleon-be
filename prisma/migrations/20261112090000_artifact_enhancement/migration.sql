@@ -1,0 +1,1 @@
+ALTER TABLE `artifacts` ADD COLUMN `enhancement_level` INTEGER UNSIGNED NOT NULL DEFAULT 0;

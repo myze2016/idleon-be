@@ -10,6 +10,8 @@ export interface SkillDefinition {
   damage?: { base: number; stat: "atk" | "magic" };
 }
 const damagingSkills: Record<string, { base: number; stat: "atk" | "magic" }> = {
+  "bouncing-glaive": { base: 20, stat: "atk" },
+  freeze: { base: 20, stat: "magic" }, "freeze-all": { base: 20, stat: "magic" },
   fireball: { base: 20, stat: "magic" }, inferno: { base: 20, stat: "magic" },
   "throw-spear": { base: 20, stat: "atk" }, charge: { base: 40, stat: "atk" },
   "heavy-blow": { base: 40, stat: "atk" }, "berserker-blow": { base: 60, stat: "atk" },
@@ -26,6 +28,9 @@ function passive(id: string, name: string, description: string): SkillDefinition
 }
 
 export const skills: Record<WeaponType, [SkillDefinition, SkillDefinition]> = {
+  glaive: [passive("cleaving-glaive", "Twin Strike", "Basic attacks hit up to two living enemies."), { ...active("bouncing-glaive", "Bouncing Glaive", "Deal 20 physical damage, then bounce up to four times between different living enemies. Ends if no other target remains.", 20), cooldown: 3 }],
+  "ice-staff": [{ ...active("freeze", "Freeze", "Deal 20 magic damage and stun the target for 2 seconds.", 20), cooldown: 1 }, { ...active("freeze-all", "Freeze All", "Deal 20 magic damage to all enemies and stun each for 2 seconds.", 40), cooldown: 5 }],
+  "dual-axe": [passive("bleed", "Bleed", "Every successful hit adds a bleed stack. Each stack deals 5 damage per second until the enemy dies or battle ends."), { ...active("axe-frenzy", "Axe Frenzy", "Increase Speed by 40 for 3 seconds.", 50), cooldown: 5 }],
   "sword-and-shield": [passive("block", "Block", "30% chance to block an incoming attack."), passive("counter", "Counterattack", "After blocking, 30% chance to counterattack.")],
   bow: [passive("poison", "Poison", "Basic attacks poison the enemy for 5 HP per second for 5 seconds. Refreshes without stacking."), active("shackle", "Shackle", "Stun the enemy for 1 second.", 25)],
   wand: [active("heal", "Heal", "Restore 30 HP to the living ally with the lowest HP.", 25), active("mass-heal", "Mass Heal", "Restore 20 HP to all living allies.", 0)],

@@ -3,6 +3,8 @@ import { requireAuth } from "../middlewares/require-auth.js";
 import { env } from "../config/env.js";
 import { HttpError } from "../utils/http-error.js";
 import { spawnEncounter, resolveEncounter, resolveEncounters, endExpedition } from "../repositories/expedition.repository.js";
+import { isDeepSea } from "../models/deepsea.js";
+import { summonDemonPrince, refreshSpectators } from "../repositories/spectator.repository.js";
 
 export const encounterRouter = Router();
 encounterRouter.use(requireAuth);
@@ -13,7 +15,7 @@ encounterRouter.use((req, res, next) => {
 });
 encounterRouter.post("/", async (req, res) => {
   const { location, teamIds } = req.body ?? {};
-  if (location !== "forest" && location !== "meadow") throw new HttpError(400, "Choose Meadow or Forest");
+  if (location !== "forest" && location !== "meadow" && location !== "harbor" && location !== "tourney" && !isDeepSea(location)) throw new HttpError(400, "Choose Meadow, Forest, Harbor, or Zugwangs Battle Tourney");
   if (!Array.isArray(teamIds) || !teamIds.length || teamIds.length > 6 || teamIds.some((id) => typeof id !== "string") || new Set(teamIds).size !== teamIds.length) {
     throw new HttpError(400, "Choose 1–6 different characters");
   }
@@ -22,6 +24,14 @@ encounterRouter.post("/", async (req, res) => {
 encounterRouter.post("/return", async (req, res) => {
   await endExpedition(req.session.user!.id);
   res.sendStatus(204);
+});
+encounterRouter.post("/spectator", async (req, res) => {
+  res.status(201).json({ data: await summonDemonPrince(req.session.user!.id) });
+});
+encounterRouter.post("/spectators/next", async (req, res) => {
+  const group = req.body?.group;
+  if (!Number.isSafeInteger(group) || group < 1) throw new HttpError(400, "Choose a valid spectator group");
+  res.json({ data: await refreshSpectators(req.session.user!.id, group) });
 });
 encounterRouter.post("/resolve", async (req, res) => {
   const ids = req.body?.encounterIds;

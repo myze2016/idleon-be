@@ -7,7 +7,7 @@ export function validateCharacter(input: unknown): Character {
   if (typeof name !== "string" || !/^[\p{L}\p{N}][\p{L}\p{N} '-]{1,23}$/u.test(name.trim())) {
     throw new HttpError(400, "Use 2–24 letters, numbers, spaces, apostrophes, or hyphens for your name");
   }
-  if (!weaponTypes.includes(weapon as WeaponType)) throw new HttpError(400, "Choose a valid weapon type");
+  if (!weaponTypes.includes(weapon as typeof weaponTypes[number])) throw new HttpError(400, "Choose a valid weapon type");
   return { name: name.trim(), weapon: weapon as WeaponType };
 }
 

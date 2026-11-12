@@ -1,0 +1,2 @@
+ALTER TABLE `users` ADD COLUMN `deep_sea_floor` INTEGER UNSIGNED NOT NULL DEFAULT 1,
+  ADD COLUMN `deep_sea_progress` JSON NULL;

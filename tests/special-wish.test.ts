@@ -1,0 +1,52 @@
+import "./setup.js";
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import request from "supertest";
+import { app } from "../src/app.js";
+import { prisma } from "../src/lib/prisma.js";
+import { env } from "../src/config/env.js";
+import { hashPassword } from "../src/utils/password.js";
+import { baseStats } from "../src/models/character-stats.js";
+import { specialWeaponTypes } from "../src/models/character.js";
+
+test("Special wishes cost 200, award the three named characters without duplicates, and keep the normal pool separate", async () => {
+  const userId = "special-wisher";
+  await prisma.user.create({ data: { id: userId, username: userId, name: "Special wisher", passwordHash: await hashPassword("Test123!") } });
+  const agent = request.agent(app), endpoint = "/api/character/wish/special";
+  const wish = () => agent.post(endpoint).set("Origin", env.corsOrigin).send({ cost: 0, weapon: "glaive", wishCurrency: 9999 });
+  await request(app).post(endpoint).set("Origin", env.corsOrigin).expect(401);
+  await agent.post("/api/auth/login").set("Origin", env.corsOrigin).send({ username: userId, password: "Test123!" }).expect(200);
+  await wish().expect(409);
+  await agent.post("/api/character").set("Origin", env.corsOrigin).send({ name: "Fake starter", weapon: "glaive" }).expect(400);
+  await agent.post("/api/character").set("Origin", env.corsOrigin).send({ name: "Starter", weapon: "bow" }).expect(201);
+  await agent.post(endpoint).expect(403);
+  await prisma.user.update({ where: { id: userId }, data: { wishCurrency: 199 } });
+  await wish().expect(409);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).wishCurrency, 199);
+  await prisma.user.update({ where: { id: userId }, data: { wishCurrency: 200 } });
+  const first = await Promise.all([wish(), wish()]);
+  assert.deepEqual(first.map((result) => result.status).sort(), [201, 409]);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).wishCurrency, 0);
+  await prisma.user.update({ where: { id: userId }, data: { wishCurrency: 600, gold: 10000 } });
+  const remaining = await Promise.all([wish(), wish(), wish()]);
+  assert.deepEqual(remaining.map((result) => result.status).sort(), [201, 201, 409]);
+  const state = (await agent.get("/api/character").expect(200)).body.data;
+  const expected = { glaive: "Kent", "ice-staff": "Juan", "dual-axe": "Jeffrey" } as const;
+  for (const weapon of specialWeaponTypes) {
+    const member = state.characters.find((member: { weapon: string }) => member.weapon === weapon);
+    assert.equal(member.name, expected[weapon]); assert.deepEqual(member.stats, baseStats[weapon]);
+    assert.equal(member.skill2Unlocked, false); assert.equal(member.skills[0].unlocked, true);
+    assert.equal(member.upgrade.stat, weapon === "ice-staff" ? "magic" : "atk");
+    const upgraded = (await agent.post(`/api/character/${member.id}/upgrade`).set("Origin", env.corsOrigin).expect(200)).body.data;
+    const saved = upgraded.characters.find((candidate: { id: string }) => candidate.id === member.id);
+    assert.equal(saved.stats[member.upgrade.stat], member.stats[member.upgrade.stat] + 5);
+    await agent.post(`/api/character/${member.id}/skill-2/unlock`).set("Origin", env.corsOrigin).expect(200);
+  }
+  assert.equal(state.wishCurrency, 200); await wish().expect(409);
+  const normal = (await agent.post("/api/character/wish").set("Origin", env.corsOrigin).expect(201)).body.data;
+  assert.ok(!specialWeaponTypes.includes(normal.reward.weapon));
+  assert.equal(normal.wishCurrency, 100);
+  await agent.post("/api/auth/logout").set("Origin", env.corsOrigin).expect(204);
+  await agent.post("/api/auth/login").set("Origin", env.corsOrigin).send({ username: userId, password: "Test123!" }).expect(200);
+  assert.equal((await agent.get("/api/character").expect(200)).body.data.characters.filter((member: { weapon: string }) => (specialWeaponTypes as readonly string[]).includes(member.weapon)).length, 3);
+});

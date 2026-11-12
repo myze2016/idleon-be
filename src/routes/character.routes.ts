@@ -3,8 +3,8 @@ import { env } from "../config/env.js";
 import { getCharacter, postCharacter, removeCharacter, wishCharacter, unlockCharacterSkill } from "../controllers/character.controller.js";
 import { requireAuth } from "../middlewares/require-auth.js";
 import { HttpError } from "../utils/http-error.js";
-import { assignTeamSlot, upgradeCharacter } from "../repositories/character.repository.js";
-import { buyArtifact, equipArtifact } from "../repositories/artifact.repository.js";
+import { assignTeamSlot, upgradeCharacter, makeSpecialWish } from "../repositories/character.repository.js";
+import { buyArtifact, equipArtifact, enhanceArtifact } from "../repositories/artifact.repository.js";
 
 export const characterRouter = Router();
 characterRouter.use(requireAuth);
@@ -18,6 +18,9 @@ characterRouter.use((req, res, next) => {
 characterRouter.get("/", getCharacter);
 characterRouter.post("/", postCharacter);
 characterRouter.post("/wish", wishCharacter);
+characterRouter.post("/wish/special", async (req, res) => {
+  res.status(201).json({ data: await makeSpecialWish(req.session.user!.id) });
+});
 characterRouter.post("/:id/upgrade", async (req, res) => {
   res.json({ data: await upgradeCharacter(req.session.user!.id, String(req.params.id)) });
 });
@@ -29,6 +32,9 @@ characterRouter.post("/:id/artifact", async (req, res) => {
   const artifactId = req.body?.artifactId;
   if (artifactId !== null && (typeof artifactId !== "string" || !artifactId)) throw new HttpError(400, "Choose an owned artifact or unequip it");
   res.json({ data: await equipArtifact(req.session.user!.id, String(req.params.id), artifactId) });
+});
+characterRouter.post("/artifacts/:id/enhance", async (req, res) => {
+  res.json({ data: await enhanceArtifact(req.session.user!.id, String(req.params.id)) });
 });
 characterRouter.post("/team", async (req, res) => {
   const { slot, characterId } = req.body ?? {};

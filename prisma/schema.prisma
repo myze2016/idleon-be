@@ -25,6 +25,9 @@ enum Weapon {
   dual_gun        @map("dual-gun")
   great_sword     @map("great-sword")
   dual_knife      @map("dual-knife")
+  glaive
+  ice_staff       @map("ice-staff")
+  dual_axe        @map("dual-axe")
 }
 
 model User {
@@ -40,16 +43,35 @@ model User {
   experience   Int @default(0) @db.UnsignedInt
   meadowDefeats Int @default(0) @map("meadow_defeats") @db.UnsignedInt
   meadowBossAt Int? @map("meadow_boss_at") @db.UnsignedInt
+  tourneyDefeats Int @default(0) @map("tourney_defeats") @db.UnsignedInt
+  tourneyBossAt Int? @map("tourney_boss_at") @db.UnsignedInt
+  tourneySpectator Json? @map("tourney_spectator")
+  garnalandUnlocked Boolean @default(false) @map("garnaland_unlocked")
+  deepSeaFloor Int @default(1) @map("deep_sea_floor") @db.UnsignedInt
+  deepSeaProgress Json? @map("deep_sea_progress")
+  harborDefeats Int @default(0) @map("harbor_defeats") @db.UnsignedInt
+  harborBossAt Int? @map("harbor_boss_at") @db.UnsignedInt
   forestDefeats Int @default(0) @map("forest_defeats") @db.UnsignedInt
   forestBossAt Int? @map("forest_boss_at") @db.UnsignedInt
   expeditionVitals Json? @map("expedition_vitals")
   teamSlots Json? @map("team_slots")
   encounters   Encounter[]
   artifacts    Artifact[]
+  questItems   QuestItem[]
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
   @@map("users")
+}
+
+model QuestItem {
+  userId String @map("user_id") @db.VarChar(30)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  itemId String @map("item_id") @db.VarChar(40)
+  acquiredAt DateTime @default(now()) @map("acquired_at")
+
+  @@id([userId, itemId])
+  @@map("quest_items")
 }
 
 model Character {
@@ -70,6 +92,7 @@ model Character {
 }
 
 model Artifact {
+  enhancementLevel Int @default(0) @map("enhancement_level") @db.UnsignedInt
   id String @id @default(cuid()) @db.VarChar(30)
   userId String @map("user_id") @db.VarChar(30)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

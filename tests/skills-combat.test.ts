@@ -125,12 +125,14 @@ test("both dual-weapon types proc extra basic hits and gain 40 speed for a 3-sec
   }
 });
 
-test("active skills obey cooldowns and MP exhaustion, and snapshots remain valid", () => {
+test("active skills obey cooldowns while mana regenerates and snapshots remain valid", () => {
   const battle = simulateBattle([member("staff", false, { hp: 1000, mp: 20 })], enemy, never);
   const casts = battle.steps.filter((step) => step.kind === "cast");
-  assert.equal(casts.length, 2);
+  assert.ok(casts.length > 2);
   assert.ok(casts[1].at - battle.steps.find((step) => step.label === "Fireball")!.at >= 5);
   assert.ok(battle.steps.every((step) => step.teamMp![0] >= 0 && step.teamHp[0] >= 0));
-  assert.ok(battle.steps.some((step) => step.kind === "attack" && step.actor === "team" && step.teamMp?.[0] === 0));
+  assert.ok(battle.steps.some((step) => step.kind === "attack" && step.actor === "team"));
+  assert.ok(battle.steps.every((step) => step.teamMp![0] <= 20));
+  for (let i = 1; i < casts.length; i++) assert.ok(casts[i].at - casts[i - 1].at >= 6);
   assert.ok(battle.steps.every((step, i) => i === 0 || step.at >= battle.steps[i - 1].at));
 });

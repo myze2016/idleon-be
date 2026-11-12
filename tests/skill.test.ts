@@ -7,10 +7,10 @@ import { prisma } from "../src/lib/prisma.js";
 import { env } from "../src/config/env.js";
 import { hashPassword } from "../src/utils/password.js";
 
-test("Skill 2 unlock costs 10,000 gold once, checks ownership, and persists per character", async () => {
+test("Skill 2 unlock costs 1,000 gold once, checks ownership, and persists per character", async () => {
   const passwordHash = await hashPassword("Test123!");
   await prisma.user.createMany({ data: [
-    { id: "skill-user", username: "skill-user", name: "Skill user", passwordHash, gold: 9999, experience: 17 },
+    { id: "skill-user", username: "skill-user", name: "Skill user", passwordHash, gold: 999, experience: 17 },
     { id: "skill-other", username: "skill-other", name: "Other", passwordHash, gold: 20000 },
   ] });
   const agent = request.agent(app), other = request.agent(app);
@@ -27,9 +27,9 @@ test("Skill 2 unlock costs 10,000 gold once, checks ownership, and persists per 
   await agent.post(path).set("Origin", "https://other.example").expect(403);
   await agent.post(path).expect(403);
   await agent.post(path).set("Origin", env.corsOrigin).send({ cost: 0, gold: 100000, skill2Unlocked: true }).expect(409);
-  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: "skill-user" } })).gold, 9999);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: "skill-user" } })).gold, 999);
   assert.equal((await prisma.character.findUniqueOrThrow({ where: { id } })).skill2Unlocked, false);
-  await prisma.user.update({ where: { id: "skill-user" }, data: { gold: 10000 } });
+  await prisma.user.update({ where: { id: "skill-user" }, data: { gold: 1000 } });
   const responses = await Promise.all([1, 2].map(() => agent.post(path).set("Origin", env.corsOrigin)));
   assert.deepEqual(responses.map((response) => response.status), [200, 200]);
   const saved = await agent.get("/api/character").expect(200);

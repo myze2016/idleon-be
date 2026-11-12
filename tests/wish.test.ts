@@ -9,14 +9,14 @@ import { hashPassword } from "../src/utils/password.js";
 import { weaponTypes } from "../src/models/character.js";
 import { baseStats } from "../src/models/character-stats.js";
 
-test("starter grants one currency; wishes atomically spend currency and persist an owned character", async () => {
+test("starter grants 100 currency; wishes atomically spend currency and persist an owned character", async () => {
   await prisma.user.create({ data: { id: "wish-user", username: "wisher", name: "Wisher", passwordHash: await hashPassword("Test123!") } });
   const agent = request.agent(app);
   await request(app).post("/api/character/wish").set("Origin", env.corsOrigin).expect(401);
   await agent.post("/api/auth/login").set("Origin", env.corsOrigin).send({ username: "wisher", password: "Test123!" }).expect(200);
   await agent.post("/api/character/wish").set("Origin", env.corsOrigin).expect(409);
   const created = await agent.post("/api/character").set("Origin", env.corsOrigin).send({ name: "Starter", weapon: "bow" }).expect(201);
-  assert.equal(created.body.data.wishCurrency, 1);
+  assert.equal(created.body.data.wishCurrency, 100);
   assert.equal(created.body.data.characters.length, 1);
   assert.equal(created.body.data.characters[0].isStarter, true);
   await prisma.user.update({ where: { id: "wish-user" }, data: { experience: 17 } });
@@ -27,7 +27,7 @@ test("starter grants one currency; wishes atomically spend currency and persist 
   await agent.post("/api/character").set("Origin", env.corsOrigin).send({ name: "Extra", weapon: "staff" }).expect(409);
   await agent.post("/api/character/wish").set("Origin", "https://other.example").expect(403);
   await agent.post("/api/character/wish").expect(403);
-  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: "wish-user" } })).wishCurrency, 1);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: "wish-user" } })).wishCurrency, 100);
   await prisma.user.update({ where: { id: "wish-user" }, data: { wishCurrency: 99 } });
   await agent.post("/api/character/wish").set("Origin", env.corsOrigin).send({ wishCurrency: 100, cost: 1 }).expect(409);
   assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: "wish-user" } })).wishCurrency, 99);
@@ -56,7 +56,7 @@ test("starter grants one currency; wishes atomically spend currency and persist 
   assert.equal(reset.body.data.wishCurrency, 0);
   assert.deepEqual(reset.body.data.characters, []);
   const restarted = await agent.post("/api/character").set("Origin", env.corsOrigin).send({ name: "New starter", weapon: "wand" }).expect(201);
-  assert.equal(restarted.body.data.wishCurrency, 1);
+  assert.equal(restarted.body.data.wishCurrency, 100);
   assert.equal(restarted.body.data.characters.length, 1);
 });
 

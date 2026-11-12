@@ -7,7 +7,7 @@ export interface Fighter { id: string; stats: CharacterStats; weapon?: WeaponTyp
 export interface BattleStep {
   at: number;
   actor: "team" | "enemy"; characterId: string; damage: number; enemyHp: number; teamHp: number[];
-  kind?: "attack" | "cast" | "skill" | "heal" | "buff" | "poison" | "block" | "counter" | "double";
+  kind?: "attack" | "cast" | "skill" | "heal" | "buff" | "poison" | "block" | "counter" | "double" | "mana" | "bleed";
   label?: string; teamMp?: number[]; healing?: number; castEndsAt?: number; targetIds?: string[]; critical?: boolean;
   teamCasting?: ({ name: string; startedAt: number; endsAt: number } | null)[];
   enemyIndex?: number; enemyHps?: number[];
@@ -22,7 +22,7 @@ function damage(attacker: CharacterStats, defender: CharacterStats) {
 }
 
 export function simulateBattle(team: Fighter[], enemy: CharacterStats, random?: () => number) {
-  if (team.some((member) => member.weapon)) return simulateSkillBattle(team, enemy, random);
+  if (team.some((member) => member.weapon || (member.mp ?? member.stats.mp) < member.stats.mp)) return simulateSkillBattle(team, enemy, random);
   const hp = team.map((member) => Math.max(0, Math.min(member.stats.hp, member.hp ?? member.stats.hp)));
   let enemyHp = enemy.hp;
   const steps: BattleStep[] = [];

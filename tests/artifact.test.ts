@@ -9,7 +9,7 @@ import { hashPassword } from "../src/utils/password.js";
 import { artifactCatalog } from "../src/models/artifact.js";
 import { baseStats } from "../src/models/character-stats.js";
 
-test("artifacts cost 1k, equip one per owned character, persist, and affect stats and actual battles", async () => {
+test("artifacts cost 500 gold, equip one per owned character, persist, and affect stats and actual battles", async () => {
   const userId = "artifact-user";
   await prisma.user.create({ data: { id: userId, username: userId, name: "Collector", passwordHash: await hashPassword("Test123!") } });
   const agent = request.agent(app);
@@ -21,7 +21,7 @@ test("artifacts cost 1k, equip one per owned character, persist, and affect stat
   await request(app).post("/api/character/artifacts/buy").set("Origin", env.corsOrigin).send({ stat: "atk" }).expect(401);
   await agent.post("/api/character/artifacts/buy").send({ stat: "atk" }).expect(403);
   await buy("atk").expect(409);
-  await prisma.user.update({ where: { id: userId }, data: { gold: 7000 } });
+  await prisma.user.update({ where: { id: userId }, data: { gold: 3500 } });
   await buy("range").expect(400);
   for (const definition of artifactCatalog) {
     const bought = await buy(definition.stat).expect(201);
@@ -39,7 +39,7 @@ test("artifacts cost 1k, equip one per owned character, persist, and affect stat
       assert.equal(battle.body.data.steps.find((step: { actor: string }) => step.actor === "team").damage, expected.atk);
     }
   }
-  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).gold < 1000, true);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).gold < 500, true);
   const inventory = (await agent.get("/api/character").expect(200)).body.data.artifacts;
   await equip("not-owned").expect(404);
   await equip(inventory[0].id, "not-owned").expect(404);
@@ -60,7 +60,7 @@ test("artifacts cost 1k, equip one per owned character, persist, and affect stat
 
 test("concurrent artifact purchases cannot overspend gold", async () => {
   const userId = "artifact-concurrent";
-  await prisma.user.create({ data: { id: userId, username: userId, name: "Collector", passwordHash: await hashPassword("Test123!"), starterCreated: true, gold: 1000 } });
+  await prisma.user.create({ data: { id: userId, username: userId, name: "Collector", passwordHash: await hashPassword("Test123!"), starterCreated: true, gold: 500 } });
   const agent = request.agent(app);
   await agent.post("/api/auth/login").set("Origin", env.corsOrigin).send({ username: userId, password: "Test123!" }).expect(200);
   const responses = await Promise.all(["hp", "atk"].map((stat) => agent.post("/api/character/artifacts/buy").set("Origin", env.corsOrigin).send({ stat })));
