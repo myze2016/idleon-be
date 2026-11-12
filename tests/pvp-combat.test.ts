@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { simulateDuel, type DuelFighter } from "../src/services/pvp-battle.service.js";
+import { simulateDuel, PVP_MELEE_RANGE, PVP_RANGED_RANGE, type DuelFighter } from "../src/services/pvp-battle.service.js";
 import { baseStats } from "../src/models/character-stats.js";
 import type { WeaponType } from "../src/models/character.js";
 const fighter = (userId: string, weapon: WeaponType, unlocked = false, overrides = {}): DuelFighter => ({ userId, id: userId, name: userId, weapon, skill2Unlocked: unlocked, stats: { ...baseStats[weapon], ...overrides } });
@@ -40,7 +40,7 @@ test("Both duelists can cast, regenerate mana, apply statuses, and use unlocked 
 
 test("Uneven teams use every fighter, retarget defeated opponents, and stop only when a whole team falls", () => {
   const team = Array.from({ length: 6 }, (_, index) => ({ ...fighter("a", "rifle", false, { hp: 150, atk: 15 }), id: `a${index}` }));
-  const result = simulateDuel([...team, fighter("b", "bow", false, { hp: 300 })], () => 0.99);
+  const result = simulateDuel([...team, fighter("b", "bow", false, { hp: 1500 })], () => 0.99);
   assert.equal(result.winnerId, "a");
   for (let index = 0; index < 6; index++) assert.ok(result.steps.some((step) => step.actor === index && step.kind === "skill"));
   assert.ok(result.steps.every((step) => step.hp.length === 7 && step.mp.length === 7));
@@ -61,7 +61,7 @@ test("6v6 area skills target the opposing team while support heals teammates wit
   const result = simulateDuel([...make("a", ["staff", "wand", "glaive", "book", "ice-staff", "sword-and-shield"]), ...make("b", ["staff", "wand", "glaive", "book", "ice-staff", "sword-and-shield"])], () => 0.99);
   assert.ok(result.steps.every((step) => step.hp.length === 12 && step.mp.length === 12));
   const aoe = result.steps.filter((step) => step.actor === 0 && step.label === "Inferno");
-  assert.deepEqual(aoe.filter((step) => step.at === aoe[0].at).flatMap((step) => step.targets), [6, 7, 8, 9, 10, 11]);
+  assert.deepEqual(aoe.filter((step) => step.at === aoe[0].at).flatMap((step) => step.targets).sort((a, b) => a - b), [6, 7, 8, 9, 10, 11]);
   assert.ok(result.steps.some((step) => step.kind === "heal" && step.healing > 0 && !step.targets.includes(step.actor)));
   assert.ok(result.steps.some((step) => step.kind === "buff" && step.targets.some((target) => target !== step.actor)));
   assert.ok(result.steps.some((step) => step.label === "Bouncing Glaive"));
@@ -73,4 +73,34 @@ test("6v6 area skills target the opposing team while support heals teammates wit
   for (const step of result.steps) step.hp.forEach((hp, index) => { if (deaths.has(index)) assert.equal(hp, 0); if (!hp) deaths.add(index); });
   assert.throws(() => simulateDuel(make("a", ["bow"])), /two teams/);
   assert.throws(() => simulateDuel([...make("a", Array(7).fill("bow")), ...make("b", ["bow"])]), /two teams/);
+});
+
+test("Opposite-end deployment gives ranged attacks a real opening before melee can reach", () => {
+  const result = simulateDuel([fighter("melee", "sword-and-shield", false, { hp: 2000, mp: 0 }), fighter("ranged", "bow", false, { hp: 2000, mp: 0 })], () => 0.99);
+  assert.deepEqual(result.fighters.map((unit) => unit.startX), [60, 1140]);
+  const ranged = result.steps.find((step) => step.actor === 1 && step.kind === "attack")!;
+  const melee = result.steps.find((step) => step.actor === 0 && step.kind === "attack")!;
+  assert.ok(ranged.at < melee.at);
+  assert.ok(Math.abs(ranged.x[0] - ranged.x[1]) > PVP_MELEE_RANGE);
+  assert.ok(Math.abs(ranged.x[0] - ranged.x[1]) <= PVP_RANGED_RANGE + 1e-5);
+  for (const step of result.steps.filter((entry) => entry.kind === "attack")) for (const target of step.targets) {
+    assert.ok(Math.abs(step.x[step.actor] - step.x[target]) <= (step.actor === 0 ? PVP_MELEE_RANGE : PVP_RANGED_RANGE) + 1e-5);
+  }
+  const moves = result.steps.filter((step) => step.kind === "move");
+  assert.ok(moves.length > 0);
+  assert.ok(moves.every((step) => step.x.every((x) => x >= 0 && x <= 1200)));
+  const arrival = result.steps.find((step) => Math.abs(step.x[0] - step.x[1]) <= PVP_RANGED_RANGE + 1e-5)!;
+  assert.ok(result.steps.filter((step) => step.at > arrival.at && step.at < melee.at).every((step) => Math.abs(step.x[1] - arrival.x[1]) < 1e-4));
+});
+
+test("Deployment mirrors full formations, ranged spells respect reach, and stunned units cannot walk", () => {
+  const make = (owner: string) => Array.from({ length: 6 }, (_, index) => ({ ...fighter(owner, "sword-and-shield", false, { hp: 1000, mp: 0 }), id: `${owner}${index}` }));
+  const formation = simulateDuel([...make("a"), ...make("b")], () => 0.99);
+  assert.deepEqual(formation.fighters.slice(0, 6).map((unit) => unit.startX), [380, 316, 252, 188, 124, 60]);
+  assert.deepEqual(formation.fighters.slice(6).map((unit) => unit.startX), [820, 884, 948, 1012, 1076, 1140]);
+  const result = simulateDuel([fighter("ice", "ice-staff", false, { hp: 1000 }), fighter("melee", "sword-and-shield", false, { hp: 1000 })], () => 0.99);
+  const freeze = result.steps.find((step) => step.label === "Freeze")!;
+  assert.ok(Math.abs(freeze.x[0] - freeze.x[1]) > PVP_MELEE_RANGE);
+  assert.ok(Math.abs(freeze.x[0] - freeze.x[1]) <= PVP_RANGED_RANGE + 1e-5);
+  for (const step of result.steps.filter((step) => step.at > freeze.at && step.at < freeze.at + 2 - 1e-6)) assert.equal(step.x[1], freeze.x[1]);
 });

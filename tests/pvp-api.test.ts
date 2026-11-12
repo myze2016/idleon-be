@@ -48,6 +48,8 @@ test("Two accounts select a 6v1 team, ready up once, share countdown, and preser
   assert.deepEqual(ready.map((response) => response.status).sort(), [200, 409]);
   const host = (await a.get(path).expect(200)).body.data, guest = (await b.get(path).expect(200)).body.data;
   assert.equal(host.phase, "countdown"); assert.equal(host.startsAt, guest.startsAt);
+  await a.post(`${path}/return`).set("Origin", env.corsOrigin).expect(409);
+  await c.post(`${path}/return`).set("Origin", env.corsOrigin).expect(403);
   assert.ok(Date.parse(host.startsAt) >= before + 4900);
   assert.equal(host.result, null); assert.equal(guest.result, null);
   assert.equal(host.players[0].fighter.stats.atk, 35);
@@ -68,10 +70,28 @@ test("Two accounts select a 6v1 team, ready up once, share countdown, and preser
     assert.equal(user.gold, 123); assert.equal(user.experience, 4); assert.equal(user.wishCurrency, 27);
     assert.deepEqual(user.expeditionVitals, { preserved: { hp: 8, mp: 3 } });
   }
+  await a.post(`${path}/return`).set("Origin", env.corsOrigin).expect(200);
+  const returned = (await a.get(path).expect(200)).body.data;
+  assert.equal(returned.code, code); assert.equal(returned.phase, "waiting");
+  assert.equal(returned.startsAt, null); assert.equal(returned.result, null);
+  assert.deepEqual(returned.players.map((player: { ready: boolean }) => player.ready), [false, false]);
+  assert.deepEqual(returned.players.map((player: { id: string }) => player.id), ["pvp-a", "pvp-b"]);
+  assert.deepEqual(returned.players[0].characterIds, teamA);
+  assert.deepEqual(returned.players[0].fighters, []);
+  await a.post(`${path}/ready`).set("Origin", env.corsOrigin).send({ ready: true }).expect(200);
+  await b.post(`${path}/return`).set("Origin", env.corsOrigin).expect(200);
+  assert.equal((await b.get(path).expect(200)).body.data.players[0].ready, true);
+  await b.post(`${path}/ready`).set("Origin", env.corsOrigin).send({ ready: true }).expect(200);
+  const rematch = (await b.get(path).expect(200)).body.data;
+  assert.equal(rematch.phase, "countdown");
+  assert.equal(rematch.players[0].fighters[0].stats.atk, 520);
+  await prisma.pvpRoom.update({ where: { code }, data: { startsAt: new Date(Date.now() - 181000) } });
+  const rematchResult = (await b.get(path).expect(200)).body.data.result;
   await a.post(`${path}/leave`).set("Origin", env.corsOrigin).expect(200);
   const afterLeave = (await b.get(path).expect(200)).body.data;
   assert.equal(afterLeave.phase, "complete");
-  assert.deepEqual(afterLeave.result, resultB.result);
+  assert.deepEqual(afterLeave.result, rematchResult);
+  await b.post(`${path}/return`).set("Origin", env.corsOrigin).expect(409);
 });
 
 test("LAN origins use the configured frontend port and reject unrelated origins", () => {

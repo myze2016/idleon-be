@@ -114,3 +114,17 @@ export async function leavePvp(userId: string, code: string) {
     return { code };
   });
 }
+
+export async function returnToPvp(userId: string, code: string) {
+  return prisma.$transaction(async (tx) => {
+    const room = await lockRoom(tx, code, userId);
+    // A second player's return (or a retry) must not clear a newly readied team.
+    if (room.status === "waiting") return { code };
+    if (room.status !== "started" || pvpPhase(room) !== "complete") throw new HttpError(409, "Finish this match before returning to the PvP room");
+    await tx.pvpRoom.update({ where: { id: room.id }, data: {
+      status: "waiting", hostReady: false, guestReady: false, startsAt: null,
+      result: Prisma.DbNull, expiresAt: new Date(Date.now() + 30 * 60_000),
+    } });
+    return { code };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+}

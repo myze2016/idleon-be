@@ -46,15 +46,25 @@ other account join its code or select it from Open rooms. Each player chooses
 are allowed, including 6v1. Use room team copies the saved formation; individual
 selections can be added or removed before readying. The first three lead and the
 next three stay behind. Both being ready starts a shared five-second countdown,
-with teams approaching from opposite sides in the expedition-style battlefield.
+with teams holding their starting formations at opposite ends of the battlefield.
 Current upgrades, artifacts, and unlocked skills are snapshotted;
 fighters start with full HP/MP and regenerate 5 MP per second. Battles draw after
-180 seconds. All living fighters take turns independently, retargeting the first
-living opponent. Area attacks hit all opposing characters, Kent strikes two and
+180 seconds. When the countdown ends, units advance at 120 battlefield units per
+second until in reach: 70 for melee basics and 600 for ranged basics and ranged
+skills. Ranged units stop farther away and can attack while melee closes the gap.
+Movement pauses while casting or stunned, and the server includes positions in
+the battle timeline for shared playback. Attack Speed still affects attacks and
+casting rather than walking. All living fighters take turns independently,
+retargeting the nearest living opponent. Area attacks hit all opposing characters, Kent strikes two and
 bounces between targets, and support skills affect living teammates. Defeated
 characters disappear; a whole team must fall to lose. PvP does not change PvE
 health, mana, gold, EXP, or wishes. Leaving
 before the battle finishes cancels the room for both players.
+After a match, Return to PvP room keeps the same room code, both players, and
+their selected teams. It clears the finished battle and both Ready states so
+players can edit teams and ready up for another countdown. Returning again is
+safe and does not clear a player who has already readied for the rematch. The
+close button still leaves PvP and returns to the personal room.
 
 The login screen's Create account button registers additional players.
 `npm run db:seed` also creates `player2` / `Player123!`

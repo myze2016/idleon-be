@@ -2,7 +2,7 @@ import { Router } from "express";
 import { requireAuth } from "../middlewares/require-auth.js";
 import { isAllowedOrigin } from "../config/origin.js";
 import { HttpError } from "../utils/http-error.js";
-import { listPvp, createPvp, joinPvp, selectPvp, readyPvp, pvpState, leavePvp } from "../repositories/pvp.repository.js";
+import { listPvp, createPvp, joinPvp, selectPvp, readyPvp, pvpState, leavePvp, returnToPvp } from "../repositories/pvp.repository.js";
 
 export const pvpRouter = Router();
 pvpRouter.use(requireAuth);
@@ -29,3 +29,4 @@ pvpRouter.post("/:code/ready", async (req, res) => {
   res.json({ data: await readyPvp(req.session.user!.id, String(req.params.code), req.body.ready) });
 });
 pvpRouter.post("/:code/leave", async (req, res) => { res.json({ data: await leavePvp(req.session.user!.id, String(req.params.code)) }); });
+pvpRouter.post("/:code/return", async (req, res) => { res.json({ data: await returnToPvp(req.session.user!.id, String(req.params.code)) }); });
