@@ -32,6 +32,14 @@ Environment variables are validated at startup. Never commit `.env`.
 
 ## Database
 
+Fish Emperor Lord (the Royal Palace boss, internal ID `fishpeople-lord`) has a
+10% chance per defeat to drop a Deep Sea Artifact. This drop-only equipment grants
++5 Magic and +5 Defense in the character's normal artifact slot. Additional copies
+can drop on later victories. Enhancement costs 1,000 gold and adds +2 Magic and
++2 Defense per level. Loot is saved with battle rewards, so
+replaying a battle never creates another artifact. Battle responses include
+`artifactsEarned` for drop notices, and the enemy wiki lists the drop.
+
 The Wish screen has independent Normal (100 currency) and Special (200 currency)
 pools. `POST /api/character/wish/special` selects equally among unowned Kent
 (`glaive`), Juan (`ice-staff`), and Jeffrey (`dual-axe`). A starter is required.

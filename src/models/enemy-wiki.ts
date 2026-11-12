@@ -37,6 +37,6 @@ export function enemyWiki() {
     if (bosses[id]) locations.push(bosses[id]!);
     return { id, name: enemy.name, boss: enemyRewards(id).boss, locations, stats: { hp, mp, atk, def, magic, magicDef, speed, range },
       gold: enemy.gold, experience: 1, attackInterval: actionDuration(speed), skills: enemySkills(enemy.stats),
-      note: id === "fishpeople-rider" ? "Rides a barracuda." : id === "baracudon" ? "A giant barracuda." : id === "crab-day" ? "Day variant: midnight–noon, Asia/Manila." : id === "crab-night" ? "Night variant: noon–midnight, Asia/Manila." : null };
+      note: id === "fishpeople-lord" ? "10% chance to drop a Deep Sea Artifact: +5 Magic and +5 Defense when equipped." : id === "fishpeople-rider" ? "Rides a barracuda." : id === "baracudon" ? "A giant barracuda." : id === "crab-day" ? "Day variant: midnight–noon, Asia/Manila." : id === "crab-night" ? "Night variant: noon–midnight, Asia/Manila." : null };
   }).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 }

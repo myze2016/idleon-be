@@ -2,7 +2,7 @@ import { randomInt } from "node:crypto";
 import { prisma } from "../lib/prisma.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { enemies, encounterPool, harborPeriod, enemyRewards, type EnemyType, type Location } from "../models/enemy.js";
-import { effectiveStats } from "../models/artifact.js";
+import { effectiveStats, artifactDrops } from "../models/artifact.js";
 import type { WeaponType } from "../models/character.js";
 import { simulateGroupBattle } from "../services/battle.service.js";
 import { HttpError } from "../utils/http-error.js";
@@ -76,7 +76,7 @@ export async function spawnEncounter(userId: string, ids: string[], location: Lo
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
 }
 
-export async function resolveEncounters(userId: string, ids: string[], lootRoll?: () => number) {
+export async function resolveEncounters(userId: string, ids: string[], lootRoll?: () => number, artifactRoll?: () => number) {
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
     const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
@@ -122,6 +122,11 @@ export async function resolveEncounters(userId: string, ids: string[], lootRoll?
       if (bossWon) deepSeaFloor = Math.max(deepSeaFloor, Math.min(3, deepSeaFloors[deepLocation].floor + 1));
     }
     const defeated = types.filter((_, i) => battle.enemyHps[i] <= 0);
+    const artifactsEarned = [];
+    for (const drop of artifactDrops(defeated, artifactRoll)) {
+      const artifact = await tx.artifact.create({ data: { userId, stat: drop.stat } });
+      artifactsEarned.push({ id: artifact.id, stat: artifact.stat, characterId: artifact.characterId, enhancementLevel: artifact.enhancementLevel, name: drop.name });
+    }
     const garnalandUnlocked = user.garnalandUnlocked || defeated.includes("demon-prince");
     const goldEarned = defeated.reduce((total, type) => total + enemies[type].gold, 0);
     const expEarned = defeated.length;
@@ -148,7 +153,7 @@ export async function resolveEncounters(userId: string, ids: string[], lootRoll?
     const result = { ...battle, initialTeamHp: fighters.map((fighter) => fighter.hp), initialTeamMp: fighters.map((fighter) => fighter.mp), goldEarned, wishEarned, levelsGained, expEarned, encounterIds: encounters.map((encounter) => encounter.id),
       deepSeaFloor, deepSeaJustUnlocked: deepSeaFloor > user.deepSeaFloor, ...(isDeepSea(deepLocation) ? { deepSeaProgress: deepProgress[deepLocation] } : {}),
       garnalandUnlocked, garnalandJustUnlocked: !user.garnalandUnlocked && garnalandUnlocked,
-      questItemsEarned, enemies: encounters.map((encounter, index) => ({ id: encounter.id, summoned: index >= originalCount, ...enemyRewards(encounter.enemyType as EnemyType) })) };
+      artifactsEarned, questItemsEarned, enemies: encounters.map((encounter, index) => ({ id: encounter.id, summoned: index >= originalCount, ...enemyRewards(encounter.enemyType as EnemyType) })) };
     const battleId = encounters[0].id;
     const claimed = await tx.encounter.updateMany({ where: { id: { in: ids }, userId, result: { equals: Prisma.DbNull } }, data: { battleId, result: { battleId } } });
     if (claimed.count !== ids.length) throw new HttpError(409, "Encounter already resolved");

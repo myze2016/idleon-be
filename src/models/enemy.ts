@@ -20,7 +20,7 @@ export const enemies = {
   "fishpeople-knight": { name: "Fishpeople Knight", stats: { hp: 400, mp: 0, atk: 20, def: 5, magic: 0, magicDef: 5, speed: 0, range: "melee", fishpeople: true, blockChance: 0.3 }, gold: 250 },
   "fishpeople-rifler": { name: "Fishpeople Rifler", stats: { hp: 300, mp: 50, atk: 40, def: 5, magic: 0, magicDef: 5, speed: 0, range: "melee", fishpeople: true, skill: { kind: "shot", name: "Rifle Shot", mana: 25, cooldown: 4, damage: 40 } }, gold: 250 },
   "fishpeople-baron": { name: "Fishpeople Baron", stats: { hp: 500, mp: 50, atk: 40, def: 5, magic: 0, magicDef: 5, speed: 0, range: "melee", fishpeople: true, skill: { kind: "heal-self", name: "Baron Heal", mana: 10, cooldown: 5 } }, gold: 250 },
-  "fishpeople-lord": { name: "Fishpeople Lord", stats: { hp: 1500, mp: 50, atk: 40, def: 15, magic: 0, magicDef: 15, speed: 0, range: "melee", fishpeople: true, skill: { kind: "summon", name: "Summon Knight", mana: 25, cooldown: 10 } }, gold: 1000 },
+  "fishpeople-lord": { name: "Fish Emperor Lord", stats: { hp: 1500, mp: 50, atk: 40, def: 15, magic: 0, magicDef: 15, speed: 0, range: "melee", fishpeople: true, skill: { kind: "summon", name: "Summon Knight", mana: 25, cooldown: 10 } }, gold: 1000 },
   "demon-prince": { name: "Demon Prince", stats: { hp: 1000, mp: 100, atk: 15, def: 0, magic: 0, magicDef: 0, speed: 0, range: "melee", burnAll: { damage: 20, mana: 40 } }, gold: 200 },
   gladiator: { name: "Gladiator", stats: { hp: 150, mp: 0, atk: 15, def: 0, magic: 0, magicDef: 0, speed: 0, range: "melee" }, gold: 30 },
   spearman: { name: "Spearman", stats: { hp: 150, mp: 0, atk: 25, def: 0, magic: 0, magicDef: 0, speed: 0, range: "melee" }, gold: 30 },
