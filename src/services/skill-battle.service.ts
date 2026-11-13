@@ -2,7 +2,7 @@ import { randomInt } from "node:crypto";
 import type { Fighter, BattleStep } from "./battle.service.js";
 import type { CharacterStats } from "../models/character-stats.js";
 import { enemies as enemyCatalog, type EnemyStats } from "../models/enemy.js";
-import { skills, COUNTER_CHANCE, CRITICAL_CHANCE, CRITICAL_MULTIPLIER, type SkillDefinition } from "../models/skills.js";
+import { skills, savesManaForSkill2, COUNTER_CHANCE, CRITICAL_CHANCE, CRITICAL_MULTIPLIER, type SkillDefinition } from "../models/skills.js";
 import { actionDuration, spellCastTime } from "../models/action-timing.js";
 
 interface Buff { kind: "attack" | "speed" | "hero" | "burst"; amount: number; expires: number }
@@ -283,9 +283,11 @@ export function simulateSkillBattle(team: Fighter[], opponents: EnemyStats | Ene
     const unit = units[next.index];
     if (unit.casting) { finishCast(next.index); continue; }
     const definitions = unit.fighter.weapon ? skills[unit.fighter.weapon] : [];
+    const savingMana = savesManaForSkill2(definitions[1], unit.fighter.skill2Unlocked, unit.mp, unit.fighter.stats.mp, unit.hp, unit.ready[1], at);
     let cast = false;
     for (const slot of [1, 0] as const) {
       const skill = definitions[slot];
+      if (slot === 0 && skill?.mpCost && savingMana) continue;
       if (!skill || skill.passive || (slot === 1 && !unit.fighter.skill2Unlocked) || at < unit.ready[slot] || unit.mp < skill.mpCost || unit.hp <= skill.hpCost) continue;
       const target = targetFor(skill, next.index);
       if (target < 0) continue;

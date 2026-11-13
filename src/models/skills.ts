@@ -29,7 +29,7 @@ function passive(id: string, name: string, description: string): SkillDefinition
 
 export const skills: Record<WeaponType, [SkillDefinition, SkillDefinition]> = {
   glaive: [passive("cleaving-glaive", "Twin Strike", "Basic attacks hit up to two living enemies."), { ...active("bouncing-glaive", "Bouncing Glaive", "Deal 20 physical damage, then bounce up to four times between different living enemies. Ends if no other target remains.", 20), cooldown: 3 }],
-  "ice-staff": [{ ...active("freeze", "Freeze", "Deal 20 magic damage and stun the target for 2 seconds.", 20), cooldown: 1 }, { ...active("freeze-all", "Freeze All", "Deal 20 magic damage to all enemies and stun each for 2 seconds.", 40), cooldown: 5 }],
+  "ice-staff": [{ ...active("freeze", "Freeze", "Deal 20 magic damage and stun the target for 2 seconds.", 10), cooldown: 1 }, { ...active("freeze-all", "Freeze All", "Deal 20 magic damage to all enemies and stun each for 2 seconds.", 30), cooldown: 5 }],
   "dual-axe": [passive("bleed", "Bleed", "Every successful hit adds a bleed stack. Each stack deals 5 damage per second until the enemy dies or battle ends."), { ...active("axe-frenzy", "Axe Frenzy", "Increase Speed by 40 for 3 seconds.", 50), cooldown: 5 }],
   "sword-and-shield": [passive("block", "Block", "30% chance to block an incoming attack."), passive("counter", "Counterattack", "After blocking, 30% chance to counterattack.")],
   bow: [passive("poison", "Poison", "Basic attacks poison the enemy for 5 HP per second for 5 seconds. Refreshes without stacking."), active("shackle", "Shackle", "Stun the enemy for 1 second.", 25)],
@@ -46,4 +46,11 @@ export const skills: Record<WeaponType, [SkillDefinition, SkillDefinition]> = {
 
 export function characterSkills(weapon: WeaponType, skill2Unlocked: boolean) {
   return skills[weapon].map((skill, i) => ({ ...skill, unlocked: i === 0 || skill2Unlocked }));
+}
+
+/** Reserve mana only for an unlocked active Skill 2 that can eventually be afforded. */
+export function savesManaForSkill2(skill: SkillDefinition | undefined, unlocked: boolean | undefined,
+  mp: number, maxMp: number, hp: number, readyAt: number, at: number) {
+  return !!skill && !!unlocked && !skill.passive && at >= readyAt && hp > skill.hpCost
+    && mp < skill.mpCost && maxMp >= skill.mpCost;
 }

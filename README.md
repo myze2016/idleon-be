@@ -65,6 +65,10 @@ their selected teams. It clears the finished battle and both Ready states so
 players can edit teams and ready up for another countdown. Returning again is
 safe and does not clear a player who has already readied for the rematch. The
 close button still leaves PvP and returns to the personal room.
+Room chat uses `GET/POST /api/pvp/:code/chat`. Only the room's two participants
+can read or send messages. Messages are plain text, limited to 300 characters and
+30 sends per account per minute. The last 100 messages persist with the room,
+including across rematches. Closed, canceled, or expired rooms reject new sends.
 
 The login screen's Create account button registers additional players.
 `npm run db:seed` also creates `player2` / `Player123!`
@@ -87,6 +91,19 @@ result; clients play the same saved event timeline.
 
 ## Game data
 
+Player AI in PvE and PvP saves mana for an unlocked active Skill 2 when it is off
+cooldown but unaffordable. It skips mana-consuming Skill 1 casts and uses basic
+attacks while mana regenerates. Skill 1 remains available during Skill 2 cooldowns.
+Saving does not apply to passive/locked Skill 2s, insufficient HP for the skill's
+HP cost, or a maximum MP below its mana cost. For example, Juan saves for 30-MP
+Freeze All instead of repeatedly spending on 10-MP Freeze when Freeze All is ready.
+
+The Wiki's Characters tab lists all 11 normal classes and three special characters.
+`GET /api/wiki/characters` requires sign-in and returns base stats, range, action
+timing, upgrade bonuses/costs, and both skills with passive/active status, unlock
+costs, damage scaling, mana/HP costs, cast times, and cooldowns. It reads the live
+combat definitions and excludes owned upgrades and artifacts.
+
 Fish Emperor Lord (the Royal Palace boss, internal ID `fishpeople-lord`) has a
 10% chance per defeat to drop a Deep Sea Artifact. This drop-only equipment grants
 +5 Magic and +5 Defense in the character's normal artifact slot. Additional copies
@@ -105,7 +122,7 @@ awarded by normal wishes. Their base stats are in `models/character-stats.ts`.
 Kent's basic attacks hit up to two enemies. Bouncing Glaive costs 20 MP, deals
 20 + ATK before defense, and can bounce four times after its first hit, stopping
 when no different living target remains; cooldown is 3 seconds. Juan's Freeze
-costs 20 MP and has a 1-second cooldown; Freeze All costs 40 MP with a 5-second
+costs 10 MP and has a 1-second cooldown; Freeze All costs 30 MP with a 5-second
 cooldown. Both deal 20 + Magic before special defense and stun for two seconds.
 Jeffrey adds a bleed stack on each unblocked basic hit, dealing 5 HP per second
 per stack until the target dies or battle ends. Axe Frenzy costs 50 MP and grants

@@ -1,6 +1,6 @@
 import { randomInt } from "node:crypto";
 import type { Fighter } from "./battle.service.js";
-import { skills, type SkillDefinition } from "../models/skills.js";
+import { skills, savesManaForSkill2, type SkillDefinition } from "../models/skills.js";
 import { actionDuration, spellCastTime } from "../models/action-timing.js";
 
 export interface DuelFighter extends Fighter { userId: string; name: string; startX?: number }
@@ -198,9 +198,11 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
     }
     if (unit.cast) { finish(next.index); continue; }
     const definitions = unit.fighter.weapon ? skills[unit.fighter.weapon] : [];
+    const savingMana = savesManaForSkill2(definitions[1], unit.fighter.skill2Unlocked, unit.mp, unit.fighter.stats.mp, unit.hp, unit.ready[1], at);
     let cast = false;
     for (const slot of [1, 0] as const) {
       const skill = definitions[slot];
+      if (slot === 0 && skill?.mpCost && savingMana) continue;
       if (!skill || skill.passive || (slot === 1 && !unit.fighter.skill2Unlocked) || at < unit.ready[slot] || unit.mp < skill.mpCost || unit.hp <= skill.hpCost || !eligible(next.index, skill)) continue;
       unit.mp -= skill.mpCost; unit.hp -= skill.hpCost;
       unit.cast = { skill, slot, ends: at + spellCastTime(stats(next.index).speed, skill.baseCastTime) };

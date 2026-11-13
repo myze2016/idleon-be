@@ -35,7 +35,7 @@ test("Juan Freeze deals 20 plus Magic and stuns for two seconds; Freeze All hits
     const hits = battle.steps.filter((step) => step.label === name && step.at === 2);
     assert.equal(hits.length, unlocked ? 2 : 1);
     assert.ok(hits.every((step) => step.damage === 35));
-    assert.equal(battle.steps.find((step) => step.label === `Casting ${name}`)!.teamMp![0], unlocked ? 110 : 130);
+    assert.equal(battle.steps.find((step) => step.label === `Casting ${name}`)!.teamMp![0], unlocked ? 120 : 140);
     for (const hit of hits) assert.ok(!battle.steps.some((step) => step.actor === "enemy" && step.enemyIndex === hit.enemyIndex && step.at >= 2 && step.at < 4));
   }
 });

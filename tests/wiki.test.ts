@@ -6,6 +6,7 @@ import { app } from "../src/app.js";
 import { env } from "../src/config/env.js";
 import { enemies } from "../src/models/enemy.js";
 import { enemyWiki } from "../src/models/enemy-wiki.js";
+import { characterWiki } from "../src/models/character-wiki.js";
 
 test("Wiki contains every enemy with current stats, rewards, locations, and skill damage", () => {
   const wiki = enemyWiki();
@@ -36,5 +37,40 @@ test("Enemy wiki endpoint is available to signed-in players and returns the live
   await agent.post("/api/auth/login").set("Origin", env.corsOrigin).send({ username: "admin", password: "Admin123!" }).expect(200);
   const response = await agent.get("/api/wiki/enemies").expect(200);
   assert.deepEqual(response.body.data, enemyWiki());
+  assert.equal(response.headers["cache-control"], "no-store");
+});
+
+test("Character wiki covers normal and special characters with damage formulas, passives, and upgrades", () => {
+  const wiki = characterWiki();
+  assert.equal(wiki.length, 14);
+  assert.equal(new Set(wiki.map((entry) => entry.id)).size, 14);
+  assert.equal(wiki.filter((entry) => entry.special).length, 3);
+  const find = (id: string) => wiki.find((entry) => entry.id === id)!;
+  assert.deepEqual(wiki.filter((entry) => entry.special).map((entry) => entry.name), ["Kent", "Juan", "Jeffrey"]);
+  assert.equal(find("sword-and-shield").upgrade?.amount, 10);
+  assert.equal(find("sword-and-shield").upgrade?.stat, "hp");
+  assert.equal(find("dual-knife").upgrade?.stat, "speed");
+  assert.equal(find("wand").upgrade, null);
+  assert.equal(find("bow").stats.range, "range");
+  assert.equal(find("glaive").stats.range, "range");
+  assert.equal(find("ice-staff").stats.mp, 150);
+  assert.deepEqual(find("ice-staff").skills[1].damage, { base: 20, stat: "magic" });
+  assert.match(find("dual-axe").skills[0].description, /5 damage per second/);
+  for (const entry of wiki) {
+    assert.deepEqual(entry.skills.map((skill) => skill.slot), [1, 2]);
+    assert.deepEqual(entry.skills.map((skill) => skill.unlockCost), [0, 1000]);
+    assert.ok(entry.skills.every((skill) => skill.name && skill.description));
+    assert.ok(entry.timing.attackInterval > 0);
+    if (entry.upgrade) assert.equal(entry.upgrade.cost, 1000);
+    for (const skill of entry.skills) if (skill.damage) assert.match(skill.description, /current (ATK|Magic)/);
+  }
+});
+
+test("Character wiki endpoint requires login and returns the public base catalog without owned data", async () => {
+  await request(app).get("/api/wiki/characters").expect(401);
+  const agent = request.agent(app);
+  await agent.post("/api/auth/login").set("Origin", env.corsOrigin).send({ username: "admin", password: "Admin123!" }).expect(200);
+  const response = await agent.get("/api/wiki/characters").expect(200);
+  assert.deepEqual(response.body.data, characterWiki());
   assert.equal(response.headers["cache-control"], "no-store");
 });

@@ -1,8 +1,9 @@
 import { Router } from "express";
+import { rateLimit } from "express-rate-limit";
 import { requireAuth } from "../middlewares/require-auth.js";
 import { isAllowedOrigin } from "../config/origin.js";
 import { HttpError } from "../utils/http-error.js";
-import { listPvp, createPvp, joinPvp, selectPvp, readyPvp, pvpState, leavePvp, returnToPvp } from "../repositories/pvp.repository.js";
+import { listPvp, createPvp, joinPvp, selectPvp, readyPvp, pvpState, leavePvp, returnToPvp, pvpChat, sendPvpChat } from "../repositories/pvp.repository.js";
 
 export const pvpRouter = Router();
 pvpRouter.use(requireAuth);
@@ -30,3 +31,13 @@ pvpRouter.post("/:code/ready", async (req, res) => {
 });
 pvpRouter.post("/:code/leave", async (req, res) => { res.json({ data: await leavePvp(req.session.user!.id, String(req.params.code)) }); });
 pvpRouter.post("/:code/return", async (req, res) => { res.json({ data: await returnToPvp(req.session.user!.id, String(req.params.code)) }); });
+pvpRouter.get("/:code/chat", async (req, res) => { res.json({ data: await pvpChat(req.session.user!.id, String(req.params.code)) }); });
+pvpRouter.post("/:code/chat", rateLimit({
+  windowMs: 60_000, limit: 30, keyGenerator: (req) => req.session.user!.id,
+  standardHeaders: "draft-8", legacyHeaders: false,
+  message: { error: { message: "Too many messages. Try again in a minute." } },
+}), async (req, res) => {
+  const body = req.body?.body;
+  if (typeof body !== "string" || !body.trim() || body.length > 300) throw new HttpError(400, "Enter a message of 1–300 characters");
+  res.status(201).json({ data: await sendPvpChat(req.session.user!.id, String(req.params.code), body.trim()) });
+});

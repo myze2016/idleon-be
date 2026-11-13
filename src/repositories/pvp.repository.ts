@@ -128,3 +128,23 @@ export async function returnToPvp(userId: string, code: string) {
     return { code };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
 }
+
+interface ChatMessage { id: string; userId: string; name: string; body: string; createdAt: string }
+export async function pvpChat(userId: string, code: string) {
+  const room = await prisma.pvpRoom.findUnique({ where: { code }, select: { hostId: true, guestId: true, messages: true } });
+  if (!room) throw new HttpError(404, "PvP room not found");
+  if (room.hostId !== userId && room.guestId !== userId) throw new HttpError(403, "You are not in this PvP room");
+  return { messages: (room.messages as unknown as ChatMessage[] | null) ?? [] };
+}
+
+export async function sendPvpChat(userId: string, code: string, body: string) {
+  return prisma.$transaction(async (tx) => {
+    const room = await lockRoom(tx, code, userId);
+    if (!["waiting", "started"].includes(room.status)) throw new HttpError(409, "This PvP room has ended");
+    const user = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true } });
+    const message: ChatMessage = { id: randomBytes(12).toString("hex"), userId, name: user.name, body, createdAt: new Date().toISOString() };
+    const messages = [...((room.messages as unknown as ChatMessage[] | null) ?? []), message].slice(-100);
+    await tx.pvpRoom.update({ where: { id: room.id }, data: { messages: messages as unknown as Prisma.InputJsonValue } });
+    return { messages };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+}

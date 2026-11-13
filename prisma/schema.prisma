@@ -83,6 +83,7 @@ model PvpRoom {
   status String @default("waiting") @db.VarChar(16)
   startsAt DateTime? @map("starts_at")
   result Json?
+  messages Json?
   expiresAt DateTime @map("expires_at")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
