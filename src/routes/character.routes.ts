@@ -38,7 +38,7 @@ characterRouter.post("/artifacts/:id/enhance", async (req, res) => {
 });
 characterRouter.post("/team", async (req, res) => {
   const { slot, characterId } = req.body ?? {};
-  if (!Number.isInteger(slot) || slot < 0 || slot >= 6 || typeof characterId !== "string" || !characterId) throw new HttpError(400, "Choose a valid team slot and character");
+  if (!Number.isInteger(slot) || slot < 0 || slot >= 6 || (characterId !== null && (typeof characterId !== "string" || !characterId))) throw new HttpError(400, "Choose a valid team slot and character");
   res.json({ data: await assignTeamSlot(req.session.user!.id, slot, characterId) });
 });
 characterRouter.post("/:id/skill-2/unlock", unlockCharacterSkill);

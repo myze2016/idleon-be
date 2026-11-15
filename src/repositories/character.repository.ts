@@ -99,11 +99,11 @@ export async function upgradeCharacter(userId: string, characterId: string) {
   return characterState(userId);
 }
 
-export async function assignTeamSlot(userId: string, slot: number, characterId: string) {
+export async function assignTeamSlot(userId: string, slot: number, characterId: string | null) {
   await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
-    const character = await tx.character.findFirst({ where: { id: characterId, userId } });
-    if (!character) throw new HttpError(400, "Choose a character you own");
+    const character = characterId === null ? null : await tx.character.findFirst({ where: { id: characterId, userId } });
+    if (characterId !== null && !character) throw new HttpError(400, "Choose a character you own");
     const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
     const previous = (user.teamSlots ?? []) as (string | null)[];
     const teamSlots = Array.from({ length: 6 }, (_, index) => index === slot ? characterId : previous[index] === characterId ? null : previous[index] ?? null);
