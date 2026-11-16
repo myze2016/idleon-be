@@ -100,7 +100,8 @@ export async function resolveEncounters(userId: string, ids: string[], lootRoll?
       const character = owned.find((member) => member.id === id)!;
       const weapon = character.weapon.replaceAll("_", "-") as WeaponType;
       const stats = effectiveStats(weapon, character.artifact, character.upgradeLevel);
-      return { id, weapon, skill2Unlocked: character.skill2Unlocked, stats, hp: Math.min(stats.hp, vitals[id]?.hp ?? stats.hp), mp: Math.min(stats.mp, vitals[id]?.mp ?? stats.mp) };
+      const slot = Array.isArray(user.teamSlots) ? user.teamSlots.indexOf(id) : -1;
+      return { id, weapon, backRow: slot >= 3, skill2Unlocked: character.skill2Unlocked, stats, hp: Math.min(stats.hp, vitals[id]?.hp ?? stats.hp), mp: Math.min(stats.mp, vitals[id]?.mp ?? stats.mp) };
     });
     if (fighters.every((fighter) => fighter.hp <= 0)) throw new HttpError(409, "Your team is defeated. Return to the room.");
     const types = encounters.map((encounter) => encounter.enemyType as EnemyType);

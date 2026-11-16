@@ -56,6 +56,7 @@ export function simulateSkillBattle(team: Fighter[], opponents: EnemyStats | Ene
     emit(source, "enemy", 0, "heal", "Restorative Shield", { enemyIndex, healing: enemyHps[enemyIndex] - before });
   }
   function basic(index: number, kind: "attack" | "counter" | "double" = "attack", enemyIndex = targetEnemy(), cleave = true) {
+    if (protectedBackRow(index) && units[index].fighter.stats.range !== "range") return;
     if (enemyIndex < 0) return;
     const enemy = enemies[enemyIndex];
     if (enemy.blockChance && roll() < enemy.blockChance) {
@@ -98,6 +99,9 @@ export function simulateSkillBattle(team: Fighter[], opponents: EnemyStats | Ene
     }
   }
   function living() { return units.flatMap((unit, index) => unit.hp > 0 ? [index] : []); }
+  function protectedBackRow(index: number) {
+    return units[index].fighter.backRow && units.some((unit) => !unit.fighter.backRow && unit.hp > 0);
+  }
   function targetFor(skill: SkillDefinition, caster: number) {
     const alive = living();
     if (skill.id === "heal") return alive.filter((index) => units[index].hp < units[index].fighter.stats.hp).sort((a, b) => units[a].hp - units[b].hp)[0] ?? -1;
@@ -186,7 +190,7 @@ export function simulateSkillBattle(team: Fighter[], opponents: EnemyStats | Ene
       units.forEach((unit, index) => {
         if (unit.hp <= 0) return;
         const before = unit.mp;
-        unit.mp = Math.min(unit.fighter.stats.mp, unit.mp + 5);
+        unit.mp = Math.min(unit.fighter.stats.mp, unit.mp + (unit.fighter.backRow ? 10 : 5));
         if (unit.mp > before) restored.push(index);
       });
       if (restored.length) emit(restored[0], "team", 0, "mana", "Mana regeneration", { targetIds: restored.map((index) => units[index].fighter.id) });
@@ -287,6 +291,7 @@ export function simulateSkillBattle(team: Fighter[], opponents: EnemyStats | Ene
     let cast = false;
     for (const slot of [1, 0] as const) {
       const skill = definitions[slot];
+      if (protectedBackRow(next.index) && skill && ["charge", "heavy-blow", "berserker-blow", "slash"].includes(skill.id)) continue;
       if (slot === 0 && skill?.mpCost && savingMana) continue;
       if (!skill || skill.passive || (slot === 1 && !unit.fighter.skill2Unlocked) || at < unit.ready[slot] || unit.mp < skill.mpCost || unit.hp <= skill.hpCost) continue;
       const target = targetFor(skill, next.index);
