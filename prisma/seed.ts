@@ -22,6 +22,15 @@ try {
     await createCharacter(user.id, validateCharacter(legacy["test-admin"]));
     console.log("Imported the existing admin character.");
   }
+  // A fresh database runs migrations before the admin exists. Reuse the same
+  // idempotent data migration after creating the development account.
+  const adminUnlockSql = await readFile(new URL("./migrations/20261117010000_admin_test_account/migration.sql", import.meta.url), "utf8");
+  await prisma.$transaction(async (tx) => {
+    for (const statement of adminUnlockSql.split(";").map((sql) => sql.trim()).filter(Boolean)) {
+      await tx.$executeRawUnsafe(statement);
+    }
+  });
+  console.log("Admin test account: all characters and maps, 100 million gold, and 1 million wishes.");
   console.log("Development accounts are ready: admin / Admin123! and player2 / Player123!");
 } finally {
   await prisma.$disconnect();

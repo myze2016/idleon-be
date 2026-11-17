@@ -2,6 +2,16 @@
 
 ## Development login
 
+The `admin` test account receives all 14 character types (including Kent, Juan,
+and Jeffrey), second skills, Garnaland, all three DeepSea floors, the Deepsea Moth
+Map, Zugwangs Evidence, at least 100,000,000 gold, and 1,000,000 wish currency.
+Migration `20261117010000_admin_test_account` upgrades only the existing account
+with username `admin` and role `admin`, without changing its password or team.
+Run `npm run db:deploy` for an existing database. On a fresh database, run
+`npm run db:seed` afterward to create and provision the development admin.
+Seeding again replenishes minimum test currencies without duplicating characters
+or resetting existing upgrades. Other accounts receive no test grants.
+
 Start this API and the frontend with `npm.cmd run dev` in separate terminals.
 Open http://localhost:3020/login and sign in with `admin` / `Admin123!`.
 Run `npm run db:seed` once to create this database account. The seed is disabled
