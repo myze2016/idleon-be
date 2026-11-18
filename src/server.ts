@@ -4,7 +4,7 @@ import { prisma } from "./lib/prisma.js";
 
 await prisma.$connect();
 await prisma.session.deleteMany({ where: { expiresAt: { lte: new Date() } } });
-const server = app.listen(env.port);
+const server = app.listen(env.port, "0.0.0.0");
 server.on("listening", () => {
   console.log(`API listening on http://localhost:${env.port}`);
 });

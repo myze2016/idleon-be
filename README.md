@@ -1,5 +1,7 @@
 # IdleOn API
 
+Railway deployment: see [the deployment guide](docs/railway-deployment.md). Use the Dockerfile, `npm run db:deploy` as the pre-deploy command, and the variables in `railway.env.example`.
+
 ## Development login
 
 The `admin` test account receives all 14 character types (including Kent, Juan,

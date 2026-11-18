@@ -23,5 +23,9 @@ if (!["postgresql:", "postgres:"].includes(database.protocol) || database.pathna
   throw new Error("DATABASE_URL must be a PostgreSQL URL with a database name");
 }
 if (nodeEnv === "production" && !process.env.SESSION_SECRET) throw new Error("SESSION_SECRET is required in production");
+const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS ?? (nodeEnv === "production" ? 1 : 0));
+if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0 || trustProxyHops > 5) {
+  throw new Error("TRUST_PROXY_HOPS must be an integer between 0 and 5");
+}
 
-export const env = { port, nodeEnv, corsOrigin, databaseUrl };
+export const env = { port, nodeEnv, corsOrigin, databaseUrl, trustProxyHops };

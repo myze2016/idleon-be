@@ -6,9 +6,11 @@ import { notFound } from "./middlewares/not-found.js";
 import { apiRouter } from "./routes/index.js";
 import { sessionMiddleware } from "./middlewares/session.js";
 import { isAllowedOrigin } from "./config/origin.js";
+import { env } from "./config/env.js";
 
 export const app = express();
 app.disable("x-powered-by");
+app.set("trust proxy", env.trustProxyHops);
 app.use(helmet());
 app.use(cors({ origin: (origin, callback) => callback(null, !origin || isAllowedOrigin(origin)), credentials: true }));
 app.use(express.json({ limit: "1mb" }));
