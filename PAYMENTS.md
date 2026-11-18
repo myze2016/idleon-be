@@ -1,5 +1,7 @@
 # Wish QR payments
 
+**Currently disabled:** the Wish purchase button and checkout entry point are removed, and payment/webhook routes are not mounted. Configuring API keys alone will not enable payments. Existing database records and the integration code are retained for future use. The integration test is skipped while routes are disabled; a regression test confirms all payment endpoints return 404.
+
 Players buy **100 wish currency for PHP 10.00** (1000 centavos), using a dynamic PayMongo QR Ph code compatible with GCash. Existing dependencies suffice: Node fetch/crypto, Prisma, and express-rate-limit; no third-party PayMongo SDK or QR package is required.
 
 ## Setup

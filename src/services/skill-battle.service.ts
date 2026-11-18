@@ -1,8 +1,9 @@
+import { skillValue } from "../models/skills.js";
 import { randomInt } from "node:crypto";
 import type { Fighter, BattleStep } from "./battle.service.js";
 import type { CharacterStats } from "../models/character-stats.js";
 import { enemies as enemyCatalog, type EnemyStats } from "../models/enemy.js";
-import { skills, savesManaForSkill2, COUNTER_CHANCE, CRITICAL_CHANCE, CRITICAL_MULTIPLIER, type SkillDefinition } from "../models/skills.js";
+import { skills, savesManaForSkill2, type SkillDefinition } from "../models/skills.js";
 import { actionDuration, spellCastTime } from "../models/action-timing.js";
 
 interface Buff { kind: "attack" | "speed" | "hero" | "burst"; amount: number; expires: number }
@@ -44,7 +45,7 @@ export function simulateSkillBattle(team: Fighter[], opponents: EnemyStats | Ene
     if (enemyIndex < 0) return;
     const enemy = enemies[enemyIndex];
     if (enemy.blockChance && roll() < enemy.blockChance) { emit(index, "team", 0, "block", enemy.fishpeople ? "Knight Block" : "Hermit Block", { enemyIndex }); return; }
-    const amount = Math.max(1, raw - (magic ? enemy.magicDef : enemy.def + (at < guardUntil[enemyIndex] ? 10 : 0))) * (critical ? CRITICAL_MULTIPLIER : 1);
+    const amount = Math.max(1, raw - (magic ? enemy.magicDef : enemy.def + (at < guardUntil[enemyIndex] ? 10 : 0))) * (critical ? skillValue("critical", "multiplier") : 1);
     enemyHps[enemyIndex] = Math.max(0, enemyHps[enemyIndex] - amount);
     emit(index, "team", amount, kind, label, { critical, enemyIndex });
     restoreShield(index, enemyIndex);
@@ -82,8 +83,8 @@ export function simulateSkillBattle(team: Fighter[], opponents: EnemyStats | Ene
       if (second >= 0) basic(index, kind, second, false);
     }
     if (unit.fighter.weapon === "bow" && enemyHps[enemyIndex] > 0) {
-      if (poisons[enemyIndex]) { poisons[enemyIndex].until = at + 5; poisons[enemyIndex].source = index; }
-      else poisons[enemyIndex] = { source: index, until: at + 5, next: at + 1 };
+      if (poisons[enemyIndex]) { poisons[enemyIndex].until = at + skillValue("poison", "duration"); poisons[enemyIndex].source = index; }
+      else poisons[enemyIndex] = { source: index, until: at + skillValue("poison", "duration"), next: at + 1 };
     }
   }
   function changeBuff(index: number, buff: Buff | null, removeExpired = false) {
@@ -125,30 +126,30 @@ export function simulateSkillBattle(team: Fighter[], opponents: EnemyStats | Ene
     unit.ready[casting.slot] = at + skill.cooldown;
     let effectTarget = target;
     if ((skill.id === "heal" || skill.id === "attack-buff" || skill.id === "speed-buff") && units[target]?.hp <= 0) effectTarget = targetFor(skill, index);
-    const critical = unit.fighter.weapon === "rifle" && !!unit.fighter.skill2Unlocked && roll() < CRITICAL_CHANCE;
+    const critical = unit.fighter.weapon === "rifle" && !!unit.fighter.skill2Unlocked && roll() < skillValue("critical", "chance");
     switch (skill.id) {
       case "shackle": {
         const target = targetEnemy();
-        stunUntil[target] = at + 1; enemyNext[target] = Math.max(enemyNext[target], stunUntil[target]);
-        emit(index, "team", 0, "skill", "Shackle · Stun 1s", { enemyIndex: target }); break;
+        stunUntil[target] = at + skill.duration!; enemyNext[target] = Math.max(enemyNext[target], stunUntil[target]);
+        emit(index, "team", 0, "skill", `Shackle · Stun ${skill.duration}s`, { enemyIndex: target }); break;
       }
       case "heal": case "mass-heal": {
         const targets = skill.id === "mass-heal" ? living() : effectTarget >= 0 ? [effectTarget] : [];
         let healed = 0;
         for (const recipient of targets) {
           const before = units[recipient].hp;
-          units[recipient].hp = Math.min(units[recipient].fighter.stats.hp, before + (skill.id === "heal" ? 30 : 20));
+          units[recipient].hp = Math.min(units[recipient].fighter.stats.hp, before + skill.power!);
           healed += units[recipient].hp - before;
         }
         emit(index, "team", 0, "heal", skill.name, { healing: healed, targetIds: targets.map((recipient) => units[recipient].fighter.id) }); break;
       }
       case "attack-buff": case "speed-buff":
         if (effectTarget >= 0) {
-          changeBuff(effectTarget, { kind: skill.id === "attack-buff" ? "attack" : "speed", amount: skill.id === "attack-buff" ? 5 : 20, expires: at + 7 });
+          changeBuff(effectTarget, { kind: skill.id === "attack-buff" ? "attack" : "speed", amount: skill.power!, expires: at + skill.duration! });
           emit(index, "team", 0, "buff", skill.name, { targetIds: [units[effectTarget].fighter.id] });
         } break;
       case "hero": case "burst-fire": case "axe-frenzy":
-        changeBuff(index, { kind: skill.id === "hero" ? "hero" : "burst", amount: skill.id === "hero" ? 20 : 40, expires: at + (skill.id === "hero" ? 7 : 3) });
+        changeBuff(index, { kind: skill.id === "hero" ? "hero" : "burst", amount: skill.power!, expires: at + skill.duration! });
         emit(index, "team", 0, "buff", skill.name, { targetIds: [unit.fighter.id] }); break;
       default: {
         if (!skill.damage) break;
@@ -157,11 +158,11 @@ export function simulateSkillBattle(team: Fighter[], opponents: EnemyStats | Ene
           const targets = skill.id === "freeze-all" ? enemyHps.flatMap((hp, target) => hp > 0 ? [target] : []) : [targetEnemy()];
           for (const target of targets) {
             hit(index, raw, true, "skill", skill.name, false, target);
-            if (enemyHps[target] > 0) { stunUntil[target] = Math.max(stunUntil[target], at + 2); enemyNext[target] = Math.max(enemyNext[target], stunUntil[target]); }
+            if (enemyHps[target] > 0) { stunUntil[target] = Math.max(stunUntil[target], at + skill.duration!); enemyNext[target] = Math.max(enemyNext[target], stunUntil[target]); }
           }
         } else if (skill.id === "bouncing-glaive") {
           let target = targetEnemy();
-          for (let bounce = 0; bounce <= 4 && target >= 0; bounce++) {
+          for (let bounce = 0; bounce <= skill.bounces! && target >= 0; bounce++) {
             hit(index, raw, false, "skill", skill.name, false, target);
             const alternatives = enemyHps.flatMap((hp, other) => hp > 0 && other !== target ? [other] : []);
             target = alternatives.length ? alternatives[Math.min(alternatives.length - 1, Math.floor(roll() * alternatives.length))] : -1;
@@ -202,11 +203,11 @@ export function simulateSkillBattle(team: Fighter[], opponents: EnemyStats | Ene
     }
     if (next.type === "poison") {
       const poison = poisons[next.index];
-      enemyHps[next.index] = Math.max(0, enemyHps[next.index] - 5); emit(poison.source, "team", 5, "poison", "Poison", { enemyIndex: next.index });
+      enemyHps[next.index] = Math.max(0, enemyHps[next.index] - skillValue("poison", "power")); emit(poison.source, "team", skillValue("poison", "power"), "poison", "Poison", { enemyIndex: next.index });
       poison.next += 1; if (poison.next > poison.until + 1e-8) delete poisons[next.index]; continue;
     }
     if (next.type === "bleed") {
-      const bleed = bleeds[next.index], amount = bleed.stacks * 5;
+      const bleed = bleeds[next.index], amount = bleed.stacks * skillValue("bleed", "power");
       enemyHps[next.index] = Math.max(0, enemyHps[next.index] - amount);
       emit(bleed.source, "team", amount, "bleed", `Bleed · ${bleed.stacks} stacks`, { enemyIndex: next.index });
       bleed.next += 1; continue;
@@ -238,9 +239,9 @@ export function simulateSkillBattle(team: Fighter[], opponents: EnemyStats | Ene
             emit(source, "enemy", 0, "skill", skill.name, { enemyIndex: index });
           } else {
             const target = skill.farthest ? living().at(-1)! : source, unit = units[target];
-            if (unit.fighter.weapon === "sword-and-shield" && roll() < 0.3) {
+            if (unit.fighter.weapon === "sword-and-shield" && roll() < skillValue("block", "chance")) {
               emit(target, "enemy", 0, "block", `Block ${skill.name}`, { enemyIndex: next.index });
-              if (unit.fighter.skill2Unlocked && roll() < COUNTER_CHANCE) basic(target, "counter", next.index);
+              if (unit.fighter.skill2Unlocked && roll() < skillValue("counter", "chance")) basic(target, "counter", next.index);
             } else {
               const amount = Math.max(1, (skill.damage ?? 0) - (skill.magic ? stats(unit).magicDef : stats(unit).def));
               unit.hp = Math.max(0, unit.hp - amount); if (unit.hp <= 0) unit.casting = null;
@@ -257,9 +258,9 @@ export function simulateSkillBattle(team: Fighter[], opponents: EnemyStats | Ene
         enemyNext[next.index] = at + actionDuration(enemy.speed);
         for (const target of living()) {
           const unit = units[target];
-          if (unit.fighter.weapon === "sword-and-shield" && roll() < 0.3) {
+          if (unit.fighter.weapon === "sword-and-shield" && roll() < skillValue("block", "chance")) {
             emit(target, "enemy", 0, "block", `Block ${areaLabel}`, { enemyIndex: next.index });
-            if (unit.fighter.skill2Unlocked && roll() < COUNTER_CHANCE) basic(target, "counter", next.index);
+            if (unit.fighter.skill2Unlocked && roll() < skillValue("counter", "chance")) basic(target, "counter", next.index);
           } else {
             const amount = Math.max(1, areaSkill.damage - (enemy.burnAll ? stats(unit).magicDef : stats(unit).def));
             unit.hp = Math.max(0, unit.hp - amount);
@@ -273,9 +274,9 @@ export function simulateSkillBattle(team: Fighter[], opponents: EnemyStats | Ene
       if (beam) enemyMp[next.index] -= beam.mana;
       enemyNext[next.index] = at + (enemy.bubbleBeam && enemyMp[next.index] >= enemy.bubbleBeam.mana ? enemy.bubbleBeam.cooldown : actionDuration(enemy.speed));
       const target = living()[0], unit = units[target];
-      if (unit.fighter.weapon === "sword-and-shield" && roll() < 0.3) {
+      if (unit.fighter.weapon === "sword-and-shield" && roll() < skillValue("block", "chance")) {
         emit(target, "enemy", 0, "block", "Block", { enemyIndex: next.index });
-        if (unit.fighter.skill2Unlocked && roll() < COUNTER_CHANCE) basic(target, "counter", next.index);
+        if (unit.fighter.skill2Unlocked && roll() < skillValue("counter", "chance")) basic(target, "counter", next.index);
       } else {
         const current = stats(unit), amount = beam ? Math.max(1, beam.damage - current.magicDef) : Math.max(1, enemy.atk - current.def, enemy.magic - current.magicDef);
         unit.hp = Math.max(0, unit.hp - amount);
@@ -304,7 +305,7 @@ export function simulateSkillBattle(team: Fighter[], opponents: EnemyStats | Ene
     }
     if (!cast) {
       basic(next.index);
-      if (targetEnemy() >= 0 && (unit.fighter.weapon === "dual-gun" || unit.fighter.weapon === "dual-knife") && roll() < 0.3) basic(next.index, "double");
+      if (targetEnemy() >= 0 && (unit.fighter.weapon === "dual-gun" || unit.fighter.weapon === "dual-knife") && roll() < skillValue("double-attack", "chance")) basic(next.index, "double");
       unit.nextAt = at + actionDuration(stats(unit).speed);
     }
   }

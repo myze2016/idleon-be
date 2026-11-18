@@ -1,9 +1,11 @@
+import { skillValue } from "../models/skills.js";
 import { randomInt } from "node:crypto";
 import type { Fighter } from "./battle.service.js";
 import { skills, savesManaForSkill2, type SkillDefinition } from "../models/skills.js";
 import { actionDuration, spellCastTime } from "../models/action-timing.js";
+import { enemies as enemyCatalog, type EnemyStats, type EnemyType } from "../models/enemy.js";
 
-export interface DuelFighter extends Fighter { userId: string; name: string; startX?: number }
+export interface DuelFighter extends Fighter { userId: string; name: string; startX?: number; enemyType?: EnemyType; enemy?: EnemyStats; spawnAt?: number }
 export interface DuelStep {
   at: number; side: number; actor: number; targets: number[]; kind: string; label: string;
   damage: number; healing: number; critical: boolean; hp: number[]; mp: number[]; x: number[];
@@ -18,6 +20,7 @@ const rangedSkills = new Set(["shackle", "fireball", "inferno", "throw-spear", "
 
 /** Ordered fighters: host formation followed by guest formation, front slots first. */
 export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_000_000) / 1_000_000): DuelResult {
+  fighters = fighters.map(fighter => ({ ...fighter }));
   const owners = [...new Set(fighters.map((fighter) => fighter.userId))];
   if (owners.length !== 2 || owners.some((id) => fighters.filter((fighter) => fighter.userId === id).length > 6)) throw new Error("PvP requires two teams of one to six characters");
   const units = fighters.map((fighter, index) => {
@@ -25,7 +28,7 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
     const count = fighters.filter((other) => other.userId === fighter.userId).length;
     const slot = fighters.slice(0, index).filter((other) => other.userId === fighter.userId).length;
     return { fighter, team, x: team === 0 ? 60 + (count - 1 - slot) * 64 : 1140 - (count - 1 - slot) * 64, hp: fighter.stats.hp, mp: fighter.stats.mp,
-    next: actionDuration(fighter.stats.speed), ready: [0, 0], stun: 0, buffs: [] as Buff[],
+    next: actionDuration(fighter.stats.speed), ready: [0, 0], stun: 0, enemyReady: 0, guardUntil: 0, shieldUntil: 0, buffs: [] as Buff[],
     cast: null as { skill: SkillDefinition; slot: number; ends: number } | null,
     poison: null as { until: number; next: number; source: number } | null,
     bleed: 0, bleedNext: Infinity, bleedSource: 0 };
@@ -42,6 +45,7 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
   const inRange = (actor: number, target: number, range: number) => Math.abs(units[actor].x - units[target].x) <= range + 1e-5;
   const stats = (index: number) => {
     const value = { ...units[index].fighter.stats };
+    if (at < units[index].guardUntil) value.def += 10;
     for (const buff of units[index].buffs) {
       if (buff.kind === "attack" || buff.kind === "hero") value.atk += buff.amount;
       if (buff.kind === "hero") value.def += buff.amount;
@@ -67,15 +71,20 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
   function strike(actor: number, target: number, raw: number, magical: boolean, kind: string, label: string, critical = false, counter = false): boolean {
     const victim = units[target];
     if (units[actor].hp <= 0 || victim.hp <= 0) return false;
-    if (victim.fighter.weapon === "sword-and-shield" && roll() < 0.3) {
+    const blockChance = victim.fighter.weapon === "sword-and-shield" ? skillValue("block", "chance") : victim.fighter.enemy?.blockChance ?? 0;
+    if (blockChance > 0 && roll() < blockChance) {
       emit(target, "block", "Block", 0, 0, false, [target]);
-      if (!counter && victim.fighter.skill2Unlocked && roll() < 0.3) basic(target, true, actor);
+      if (!counter && victim.fighter.weapon === "sword-and-shield" && victim.fighter.skill2Unlocked && roll() < skillValue("counter", "chance")) basic(target, true, actor);
       return false;
     }
-    const damage = Math.max(1, raw - (magical ? stats(target).magicDef : stats(target).def)) * (critical ? 2 : 1);
+    const damage = Math.max(1, raw - (magical ? stats(target).magicDef : stats(target).def)) * (critical ? skillValue("critical", "multiplier") : 1);
     victim.hp = Math.max(0, victim.hp - damage);
     if (!victim.hp) victim.cast = null;
     emit(actor, kind, label, damage, 0, critical, [target]);
+    if (victim.hp > 0 && at < victim.shieldUntil) {
+      const before = victim.hp; victim.hp = Math.min(victim.fighter.stats.hp, victim.hp + 5);
+      emit(target, "heal", "Restorative Shield", 0, victim.hp - before, false, [target]);
+    }
     return true;
   }
   function basic(actor: number, counter = false, counterTarget?: number) {
@@ -87,8 +96,8 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
       const victim = units[target];
       if (!victim.hp) continue;
       if (units[actor].fighter.weapon === "bow") {
-        if (victim.poison) { victim.poison.until = at + 5; victim.poison.source = actor; }
-        else victim.poison = { until: at + 5, next: at + 1, source: actor };
+        if (victim.poison) { victim.poison.until = at + skillValue("poison", "duration"); victim.poison.source = actor; }
+        else victim.poison = { until: at + skillValue("poison", "duration"), next: at + 1, source: actor };
       }
       if (units[actor].fighter.weapon === "dual-axe") {
         if (!victim.bleed) victim.bleedNext = at + 1;
@@ -113,28 +122,28 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
       const targets = skill.id === "mass-heal" ? allies(actor) : allies(actor).filter((index) => units[index].hp < fighters[index].stats.hp).sort((a, b) => units[a].hp - units[b].hp).slice(0, 1);
       for (const target of targets) {
         const before = units[target].hp;
-        units[target].hp = Math.min(fighters[target].stats.hp, before + (skill.id === "heal" ? 30 : 20));
+        units[target].hp = Math.min(fighters[target].stats.hp, before + skill.power!);
         emit(actor, "heal", skill.name, 0, units[target].hp - before, false, [target]);
       }
     } else if (buffKind(skill.id)) {
       const kind = buffKind(skill.id)!, candidates = buffTargets(actor, skill);
       if (candidates.length) {
         const target = candidates[Math.min(candidates.length - 1, Math.floor(roll() * candidates.length))];
-        buff(target, { kind, amount: kind === "attack" ? 5 : kind === "speed" || kind === "hero" ? 20 : 40, until: at + (kind === "burst" ? 3 : 7) });
+        buff(target, { kind, amount: skill.power!, until: at + skill.duration! });
         emit(actor, "buff", skill.name, 0, 0, false, [target]);
       }
     } else if (skill.id === "shackle") {
       const target = enemies(actor).find((index) => inRange(actor, index, skillRange(skill)) && units[index].stun <= at);
-      if (target !== undefined) { units[target].stun = Math.max(units[target].stun, at + 1); emit(actor, "skill", "Shackle · Stun 1s", 0, 0, false, [target]); }
+      if (target !== undefined) { units[target].stun = Math.max(units[target].stun, at + skill.duration!); emit(actor, "skill", `Shackle · Stun ${skill.duration}s`, 0, 0, false, [target]); }
     } else if (skill.damage) {
-      const critical = unit.fighter.weapon === "rifle" && !!unit.fighter.skill2Unlocked && roll() < 0.3;
+      const critical = unit.fighter.weapon === "rifle" && !!unit.fighter.skill2Unlocked && roll() < skillValue("critical", "chance");
       const hit = (target: number) => {
         if (strike(actor, target, skill.damage!.base + stats(actor)[skill.damage!.stat], skill.damage!.stat === "magic", "skill", skill.name, critical)
-          && ["freeze", "freeze-all"].includes(skill.id)) units[target].stun = Math.max(units[target].stun, at + 2);
+          && ["freeze", "freeze-all"].includes(skill.id)) units[target].stun = Math.max(units[target].stun, at + skill.duration!);
       };
       if (skill.id === "bouncing-glaive") {
         let target = enemies(actor).find((index) => inRange(actor, index, skillRange(skill)));
-        for (let bounce = 0; bounce < 5 && target !== undefined && unit.hp > 0; bounce++) {
+        for (let bounce = 0; bounce <= skill.bounces! && target !== undefined && unit.hp > 0; bounce++) {
           hit(target);
           target = enemies(actor).find((index) => index !== target);
         }
@@ -144,6 +153,47 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
       }
     }
     unit.next = at + actionDuration(stats(actor).speed);
+  }
+  function enemyAction(actor: number) {
+    const unit = units[actor], enemy = unit.fighter.enemy;
+    if (!enemy) return false;
+    const skill = enemy.skill;
+    if (skill && at >= unit.enemyReady && unit.mp >= skill.mana) {
+      const targets = skill.kind === "heal-self" ? [actor].filter(i => units[i].hp < fighters[i].stats.hp) : skill.kind === "heal-all" ? allies(actor).filter(i => fighters[i].enemy?.fishpeople && units[i].hp < fighters[i].stats.hp) : [];
+      const rangedTargets = enemies(actor).filter(i => inRange(actor, i, PVP_RANGED_RANGE));
+      const canUse = skill.kind === "shot" ? rangedTargets.length > 0 : skill.kind.startsWith("heal") ? targets.length > 0 : skill.kind === "summon" ? allies(actor).length < 6 && fighters.filter(f => f.userId === unit.fighter.userId).length < 24 : true;
+      if (canUse) {
+        unit.mp -= skill.mana; unit.enemyReady = at + skill.cooldown;
+        if (skill.kind === "guard" || skill.kind === "shield") {
+          if (skill.kind === "guard") unit.guardUntil = at + (skill.duration ?? 2); else unit.shieldUntil = at + (skill.duration ?? 5);
+          emit(actor, "buff", skill.name, 0, 0, false, [actor]);
+        } else if (skill.kind.startsWith("heal")) {
+          for (const target of targets) { const before = units[target].hp; units[target].hp = Math.min(fighters[target].stats.hp, before + 50); emit(actor, "heal", skill.name, 0, units[target].hp - before, false, [target]); }
+        } else if (skill.kind === "summon") {
+          const stats = structuredClone(enemyCatalog["fishpeople-knight"].stats), index = fighters.length;
+          const fighter: DuelFighter = { id: `summon-${index}`, userId: unit.fighter.userId, name: "Summoned Knight", enemyType: "fishpeople-knight", enemy: stats, stats, spawnAt: at };
+          const x = Math.max(30, Math.min(1170, unit.x + (unit.team === 0 ? -50 : 50)));
+          fighters.push(fighter); initialPositions.push(x);
+          units.push({ ...unit, fighter, hp: stats.hp, mp: stats.mp, x, next: at + actionDuration(stats.speed), ready: [0, 0], stun: 0, enemyReady: 0, guardUntil: 0, shieldUntil: 0, buffs: [], cast: null, poison: null, bleed: 0, bleedNext: Infinity, bleedSource: 0 });
+          emit(actor, "skill", skill.name, 0, 0, false, [index]);
+        } else {
+          const target = skill.farthest ? rangedTargets.at(-1)! : rangedTargets[0];
+          strike(actor, target, skill.damage ?? 0, !!skill.magic, "skill", skill.name);
+        }
+        unit.next = at + actionDuration(stats(actor).speed); return true;
+      }
+    }
+    const area = enemy.burnAll ?? enemy.slashAll, beam = enemy.bubbleBeam;
+    if (area && unit.mp >= area.mana && enemies(actor).some(i => inRange(actor, i, PVP_RANGED_RANGE))) {
+      unit.mp -= area.mana;
+      for (const target of enemies(actor)) strike(actor, target, area.damage, !!enemy.burnAll, "skill", enemy.burnAll ? "Burn All" : "Slash All");
+      unit.next = at + actionDuration(stats(actor).speed); return true;
+    }
+    if (beam && unit.mp >= beam.mana && at >= unit.enemyReady) {
+      const target = enemies(actor).find(i => inRange(actor, i, PVP_RANGED_RANGE));
+      if (target !== undefined) { unit.mp -= beam.mana; unit.enemyReady = at + beam.cooldown; strike(actor, target, beam.damage, true, "skill", "Bubble Beam"); unit.next = at + actionDuration(stats(actor).speed); return true; }
+    }
+    return false;
   }
   for (let event = 0; event < 50000 && alive(0).length && alive(1).length; event++) {
     const events = [{ at: manaAt, type: "mana", index: 0, priority: -4 }, { at: moveAt, type: "move", index: 0, priority: -1 },
@@ -166,6 +216,8 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
         const target = enemies(index)[0];
         if (target === undefined) return unit.x;
         let reach = basicRange(index);
+        const native = unit.fighter.enemy;
+        if ((native?.bubbleBeam && unit.mp >= native.bubbleBeam.mana) || (native?.skill?.kind === "shot" && unit.mp >= native.skill.mana) || (native?.burnAll && unit.mp >= native.burnAll.mana) || (native?.slashAll && unit.mp >= native.slashAll.mana)) reach = Math.max(reach, PVP_RANGED_RANGE);
         const definitions = unit.fighter.weapon ? skills[unit.fighter.weapon] : [];
         for (const slot of [0, 1]) {
           const skill = definitions[slot];
@@ -182,13 +234,13 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
     }
     if (next.type === "mana") {
       manaAt += 1;
-      units.forEach((unit) => { if (unit.hp > 0) unit.mp = Math.min(unit.fighter.stats.mp, unit.mp + 5); });
+      units.forEach((unit) => { if (unit.hp > 0 && !unit.fighter.enemy) unit.mp = Math.min(unit.fighter.stats.mp, unit.mp + 5); });
       emit(0, "mana", "Mana regeneration"); continue;
     }
     if (next.type === "expiry") { buff(next.index); emit(next.index, "buff", "Buff expired"); continue; }
     const unit = units[next.index];
     if (next.type === "poison" || next.type === "bleed") {
-      const damage = next.type === "poison" ? 5 : unit.bleed * 5;
+      const damage = next.type === "poison" ? skillValue("poison", "power") : unit.bleed * skillValue("bleed", "power");
       unit.hp = Math.max(0, unit.hp - damage);
       if (!unit.hp) unit.cast = null;
       emit(next.type === "poison" ? unit.poison!.source : unit.bleedSource, next.type, next.type === "poison" ? "Poison" : `Bleed · ${unit.bleed} stacks`, damage, 0, false, [next.index]);
@@ -197,6 +249,7 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
       continue;
     }
     if (unit.cast) { finish(next.index); continue; }
+    if (enemyAction(next.index)) continue;
     const definitions = unit.fighter.weapon ? skills[unit.fighter.weapon] : [];
     const savingMana = savesManaForSkill2(definitions[1], unit.fighter.skill2Unlocked, unit.mp, unit.fighter.stats.mp, unit.hp, unit.ready[1], at);
     let cast = false;
@@ -214,7 +267,7 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
         continue;
       }
       basic(next.index);
-      if (["dual-gun", "dual-knife"].includes(unit.fighter.weapon ?? "") && unit.hp > 0 && enemies(next.index).length && roll() < 0.3) basic(next.index);
+      if (["dual-gun", "dual-knife"].includes(unit.fighter.weapon ?? "") && unit.hp > 0 && enemies(next.index).length && roll() < skillValue("double-attack", "chance")) basic(next.index);
       unit.next = at + actionDuration(stats(next.index).speed);
     }
   }

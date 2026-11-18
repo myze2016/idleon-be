@@ -1,11 +1,12 @@
 import type { WeaponType } from "./character.js";
+import { currentBalance } from "./balance-context.js";
 
 export interface CharacterStats {
   hp: number; mp: number; atk: number; def: number;
   magic: number; magicDef: number; speed: number; range: "melee" | "range";
 }
 
-export const baseStats: Record<WeaponType, CharacterStats> = {
+export const defaultBaseStats: Record<WeaponType, CharacterStats> = {
   glaive: { hp: 100, mp: 100, atk: 10, def: 0, magic: 0, magicDef: 0, speed: 0, range: "range" },
   "ice-staff": { hp: 50, mp: 150, atk: 10, def: 0, magic: 20, magicDef: 20, speed: 0, range: "melee" },
   "dual-axe": { hp: 150, mp: 50, atk: 20, def: 0, magic: 0, magicDef: 20, speed: 0, range: "melee" },
@@ -21,3 +22,6 @@ export const baseStats: Record<WeaponType, CharacterStats> = {
   "great-sword": { hp: 125, mp: 125, atk: 10, def: 0, magic: 10, magicDef: 0, speed: 10, range: "melee" },
   "dual-knife": { hp: 100, mp: 100, atk: 10, def: 0, magic: 0, magicDef: 0, speed: 10, range: "melee" },
 };
+export const baseStats = new Proxy(defaultBaseStats, {
+  get(target, key: string) { return currentBalance()?.stats[key] ?? target[key as WeaponType]; },
+});

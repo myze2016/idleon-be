@@ -1,4 +1,5 @@
 import type { CharacterStats } from "./character-stats.js";
+import { currentBalance } from "./balance-context.js";
 
 export interface EnemyStats extends CharacterStats {
   fishpeople?: boolean;
@@ -9,7 +10,7 @@ export interface EnemyStats extends CharacterStats {
   bubbleBeam?: { damage: number; mana: number; cooldown: number };
 }
 
-export const enemies = {
+export const defaultEnemies = {
   "fishpeople-guard": { name: "Fishpeople Guard", stats: { hp: 250, mp: 50, atk: 20, def: 5, magic: 0, magicDef: 5, speed: 0, range: "melee", fishpeople: true, skill: { kind: "guard", name: "Guard Mode", mana: 50, cooldown: 2, duration: 2 } }, gold: 100 },
   "fishpeople-archer": { name: "Fishpeople Archer", stats: { hp: 200, mp: 50, atk: 20, def: 5, magic: 0, magicDef: 5, speed: 0, range: "range", fishpeople: true, skill: { kind: "shot", name: "Sniper Shot", mana: 50, cooldown: 1, damage: 50 } }, gold: 100 },
   "fishpeople-rider": { name: "Fishpeople Rider", stats: { hp: 300, mp: 0, atk: 20, def: 5, magic: 0, magicDef: 5, speed: 0, range: "melee", fishpeople: true }, gold: 100 },
@@ -42,7 +43,13 @@ export const enemies = {
   warrior: { name: "Coco Klan Warrior", stats: { hp: 50, mp: 0, atk: 5, def: 5, magic: 0, magicDef: 0, speed: 0, range: "melee" }, gold: 20 },
   slinger: { name: "Coco Klan Slinger", stats: { hp: 30, mp: 0, atk: 5, def: 0, magic: 0, magicDef: 0, speed: 0, range: "range" }, gold: 20 },
 } satisfies Record<string, { name: string; stats: EnemyStats; gold: number }>;
-export type EnemyType = keyof typeof enemies;
+export type EnemyType = keyof typeof defaultEnemies;
+export const enemies = new Proxy(defaultEnemies, {
+  get(target, key: string) {
+    const original = target[key as EnemyType];
+    return original ? { ...original, stats: currentBalance()?.enemies?.[key] ?? original.stats } : undefined;
+  },
+}) as Record<EnemyType, { name: string; stats: EnemyStats; gold: number }>;
 export const enemyPools = {
   deepsea: ["fishpeople-guard", "fishpeople-archer", "fishpeople-rider"],
   "deepsea-2f": ["fishpeople-rider", "baracudon", "fishpeople-cleric"],

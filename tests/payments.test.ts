@@ -10,7 +10,7 @@ import { hashPassword } from "../src/utils/password.js";
 import { verifyPaymongoSignature, type PaymentResource } from "../src/services/paymongo.service.js";
 import { creditVerifiedPayment } from "../src/repositories/payment.repository.js";
 
-test("QR orders enforce fixed price, authenticated ownership, signed webhooks and exactly-once credit", async () => {
+test("QR orders enforce fixed price, authenticated ownership, signed webhooks and exactly-once credit", { skip: "Wish payments are disabled for now" }, async () => {
   const oldFetch = globalThis.fetch, oldKey = process.env.PAYMONGO_SECRET_KEY, oldSecret = process.env.PAYMONGO_WEBHOOK_SECRET;
   process.env.PAYMONGO_SECRET_KEY = "sk_test_mock";
   process.env.PAYMONGO_WEBHOOK_SECRET = "test-webhook-secret";
@@ -92,4 +92,11 @@ test("QR orders enforce fixed price, authenticated ownership, signed webhooks an
     if (oldKey === undefined) delete process.env.PAYMONGO_SECRET_KEY; else process.env.PAYMONGO_SECRET_KEY = oldKey;
     if (oldSecret === undefined) delete process.env.PAYMONGO_WEBHOOK_SECRET; else process.env.PAYMONGO_WEBHOOK_SECRET = oldSecret;
   }
+});
+
+test("payment checkout and webhook endpoints are unavailable", async () => {
+  await request(app).post("/api/payments/wish").expect(404);
+  await request(app).get("/api/payments/wish/latest").expect(404);
+  await request(app).get("/api/payments/wish/any-order").expect(404);
+  await request(app).post("/api/payments/paymongo/webhook").send({ data: {} }).expect(404);
 });

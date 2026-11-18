@@ -6,13 +6,11 @@ import { notFound } from "./middlewares/not-found.js";
 import { apiRouter } from "./routes/index.js";
 import { sessionMiddleware } from "./middlewares/session.js";
 import { isAllowedOrigin } from "./config/origin.js";
-import { paymentWebhook, paymentWebhookBody } from "./routes/payment.routes.js";
 
 export const app = express();
 app.disable("x-powered-by");
 app.use(helmet());
 app.use(cors({ origin: (origin, callback) => callback(null, !origin || isAllowedOrigin(origin)), credentials: true }));
-app.post("/api/payments/paymongo/webhook", paymentWebhookBody, paymentWebhook);
 app.use(express.json({ limit: "1mb" }));
 app.use(sessionMiddleware);
 app.use("/api", apiRouter);

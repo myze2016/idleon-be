@@ -98,6 +98,56 @@ result; clients play the same saved event timeline.
 
 ## Game data
 
+### Support tiers
+
+The room's small **Support · Any amount** button accepts optional donations of
+any positive amount, with up to two decimal places. Skin recognition milestones
+are Supporter (PHP 10 or more, Verdant), Backer (PHP 50 or more, Sapphire), and
+Patron (PHP 100 or more, Royal Gold). These are thank-you thresholds for each
+verified donation, not fixed-price packages or a PHP 100 cap. Donations below
+PHP 10 are welcome and keep the Community skin. Cosmetic tiers never grant wishes, gold,
+stats, or combat advantages automatically. The panel also advertises occasional
+surprise freebies without guaranteeing a gift or schedule. Automated payment
+checkout remains disabled; support uses an admin-provided GCash QR and manual review.
+
+Admin accounts see **Admin controls** on the dashboard. Use **Admin · Accounts & rewards** there to search
+by username or character name, select a tier, and save it. Community resets the account to the
+Classic skin. Changes persist across logins and character resets. The player's
+session refreshes the skin within 30 seconds or on refocus.
+
+`GET /api/admin/donation-tiers?search=...` lists up to 20 matching accounts.
+`PATCH /api/admin/users/:id/donation-tier` accepts only `{ "tier": 0..3 }`.
+Both require a currently authorized database admin; writes also require an
+allowed Origin. Tier assignments are validated, rate limited, and audited in
+`donation_tier_changes`, recording the actor and old/new tier. No payment data
+or automatic verification is implied by a manual assignment.
+
+The same admin section shows each account's characters and wish balance. **Add
+wishes** grants a positive whole amount (1 to 1,000,000) to that account's shared
+wish currency; it does not create a separate character wallet or change the
+donation tier. `POST /api/admin/users/:id/wish-currency` accepts `{ "amount": N }`
+and requires a UUIDv4 `Idempotency-Key` header. Retrying the same logical request
+cannot award it twice. Grants and balance updates are atomic and audited in
+`wish_currency_grants`, including the admin, target account, amount, and before/
+after balances. Player views refresh balances within 30 seconds or on refocus.
+The login screen does not display or autofill development account credentials.
+
+Admins upload their receiving GCash QR on the dashboard under **Admin · Donation QR & submissions**
+(PNG/JPEG, maximum 512 KB). **Donate any amount · Show QR** displays it; after sending,
+supporters submit the actual amount, sender mobile number, and transaction reference. The
+authenticated account is linked automatically. Numbers are normalized to +63,
+references cannot be reused, and PostgreSQL stores the claimed amount as
+DECIMAL(12,2). The server derives the qualifying tier from the amount instead of
+accepting a client-selected tier. `POST /api/support/submissions` creates a pending claim, never a confirmed
+payment or an automatic reward. Only admins can read sender details through
+`GET /api/admin/support-submissions`. After checking actual receipt in their own
+GCash history, an admin can approve or reject using
+`PATCH /api/admin/support-submissions/:id`. Approval records the reviewer/time and
+activates the tier atomically; repeat approvals are harmless and lower-tier
+contributions never downgrade an existing higher tier. `PUT /api/admin/support-qr`
+accepts a validated raster data URL or null to remove it. Without a QR configured,
+the support form explains that it is not ready and refuses submissions.
+
 Player AI in PvE and PvP saves mana for an unlocked active Skill 2 when it is off
 cooldown but unaffordable. It skips mana-consuming Skill 1 casts and uses basic
 attacks while mana regenerates. Skill 1 remains available during Skill 2 cooldowns.

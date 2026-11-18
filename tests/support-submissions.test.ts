@@ -1,0 +1,81 @@
+import "./setup.js";
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import request from "supertest";
+import { app } from "../src/app.js";
+import { prisma } from "../src/lib/prisma.js";
+import { env } from "../src/config/env.js";
+import { hashPassword } from "../src/utils/password.js";
+import { supportAmount } from "../src/models/support-amount.js";
+
+test("donation amounts accept custom pesos and centavos and derive skin milestones", () => {
+  for (const [amount, tier] of [["0.01", 0], ["9.99", 0], ["10", 1], ["49.99", 1], ["50", 2], ["99.99", 2], ["100", 3], ["137.25", 3], ["9999999999.99", 3]] as const) {
+    const parsed = supportAmount(amount);
+    assert.equal(parsed.tier, tier); assert.equal(parsed.amount.toString(), String(Number(amount)));
+  }
+  for (const amount of [0, -1, "0", "10.001", "NaN", null, {}, Infinity, "10000000000"]) assert.throws(() => supportAmount(amount));
+});
+
+test("support QR and sender claims require private admin review; submissions never automatically grant rewards", async () => {
+  await prisma.user.create({ data: { id: "support-admin", username: "support_admin", name: "Admin", role: "admin", passwordHash: await hashPassword("Admin123!") } });
+  const admin = request.agent(app), player = request.agent(app);
+  await admin.post("/api/auth/login").set("Origin", env.corsOrigin).send({ username: "support_admin", password: "Admin123!" }).expect(200);
+  const registration = await player.post("/api/auth/register").set("Origin", env.corsOrigin).send({ username: "support_sender", password: "Player123!", confirmPassword: "Player123!" }).expect(201);
+  const id = registration.body.data.user.id;
+  await request(app).get("/api/support").expect(401);
+  await request(app).post("/api/support/submissions").expect(401);
+  assert.equal((await player.get("/api/support").expect(200)).body.data.qrImage, null);
+  const input = { amount: "137.25", phone: "09171234567", reference: "GCASH-123456789" };
+  await player.post("/api/support/submissions").send(input).expect(403);
+  await player.post("/api/support/submissions").set("Origin", env.corsOrigin).send(input).expect(503);
+  await player.put("/api/admin/support-qr").set("Origin", env.corsOrigin).send({ image: null }).expect(403);
+  await admin.put("/api/admin/support-qr").send({ image: null }).expect(403);
+  await admin.put("/api/admin/support-qr").set("Origin", env.corsOrigin).send({ image: "data:image/svg+xml;base64,PHN2Zy8+" }).expect(400);
+  await admin.put("/api/admin/support-qr").set("Origin", env.corsOrigin).send({ image: "data:image/png;base64,ZmFrZQ==" }).expect(400);
+  // Valid raster test fixture only; never installed in the real application database.
+  const qr = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j8l8AAAAASUVORK5CYII=";
+  await admin.put("/api/admin/support-qr").set("Origin", env.corsOrigin).send({ image: qr }).expect(200);
+  assert.equal((await player.get("/api/support").expect(200)).body.data.qrImage, qr);
+  await player.post("/api/support/submissions").set("Origin", env.corsOrigin).send({ ...input, phone: "invalid" }).expect(400);
+  await player.post("/api/support/submissions").set("Origin", env.corsOrigin).send({ ...input, tier: 3 }).expect(400);
+  const submitted = await player.post("/api/support/submissions").set("Origin", env.corsOrigin).send(input).expect(201);
+  const claimId = submitted.body.data.submission.id;
+  assert.equal(submitted.body.data.submission.status, "pending");
+  assert.equal(submitted.body.data.submission.amount, "137.25");
+  assert.equal(submitted.body.data.submission.tier, 3);
+  const stored = await prisma.supportSubmission.findUniqueOrThrow({ where: { id: claimId } });
+  assert.equal(stored.phone, "+639171234567"); assert.equal(stored.userId, id);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id } })).donationTier, 0);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id } })).wishCurrency, 0);
+  await player.post("/api/support/submissions").set("Origin", env.corsOrigin).send(input).expect(409);
+  await player.get("/api/admin/support-submissions").expect(403);
+  await player.patch(`/api/admin/support-submissions/${claimId}`).set("Origin", env.corsOrigin).send({ decision: "approved" }).expect(403);
+  const queue = await admin.get("/api/admin/support-submissions").expect(200);
+  assert.equal(queue.body.data.submissions[0].user.username, "support_sender");
+  assert.equal(queue.body.data.submissions[0].phone, "+639171234567");
+  const reviewPath = `/api/admin/support-submissions/${claimId}`;
+  await admin.patch(reviewPath).send({ decision: "approved" }).expect(403);
+  await admin.patch(reviewPath).set("Origin", env.corsOrigin).send({ decision: "approved" }).expect(200);
+  await admin.patch(reviewPath).set("Origin", env.corsOrigin).send({ decision: "approved" }).expect(200);
+  assert.equal((await player.get("/api/auth/me").expect(200)).body.data.user.donationTier, 3);
+  assert.equal(await prisma.donationTierChange.count({ where: { userId: id } }), 1);
+  await prisma.user.create({ data: { id: "small-supporter", username: "small_supporter", name: "Small Supporter", passwordHash: await hashPassword("Player123!") } });
+  const small = request.agent(app);
+  await small.post("/api/auth/login").set("Origin", env.corsOrigin).send({ username: "small_supporter", password: "Player123!" }).expect(200);
+  const tiny = await small.post("/api/support/submissions").set("Origin", env.corsOrigin).send({ amount: "0.25", phone: input.phone, reference: "SMALL-123456789" }).expect(201);
+  assert.equal(tiny.body.data.submission.amount, "0.25"); assert.equal(tiny.body.data.submission.tier, 0);
+  await admin.patch(`/api/admin/support-submissions/${tiny.body.data.submission.id}`).set("Origin", env.corsOrigin).send({ decision: "approved" }).expect(200);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: "small-supporter" } })).donationTier, 0);
+  assert.equal(await prisma.donationTierChange.count({ where: { userId: "small-supporter" } }), 0);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id } })).wishCurrency, 0);
+  const reviewed = await prisma.supportSubmission.findUniqueOrThrow({ where: { id: claimId } });
+  assert.equal(reviewed.reviewedById, "support-admin"); assert.ok(reviewed.reviewedAt);
+  await admin.patch(reviewPath).set("Origin", env.corsOrigin).send({ decision: "rejected" }).expect(409);
+  const lower = await prisma.supportSubmission.create({ data: { userId: id, tier: 1, amount: 10, phone: stored.phone, reference: "LOWER-123456" } });
+  await admin.patch(`/api/admin/support-submissions/${lower.id}`).set("Origin", env.corsOrigin).send({ decision: "approved" }).expect(200);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id } })).donationTier, 3);
+  const rejected = await prisma.supportSubmission.create({ data: { userId: id, tier: 2, amount: 50, phone: stored.phone, reference: "REJECT-123456" } });
+  await admin.patch(`/api/admin/support-submissions/${rejected.id}`).set("Origin", env.corsOrigin).send({ decision: "rejected" }).expect(200);
+  assert.equal(await prisma.donationTierChange.count({ where: { userId: id } }), 1);
+  await admin.put("/api/admin/support-qr").set("Origin", env.corsOrigin).send({ image: null }).expect(200);
+});

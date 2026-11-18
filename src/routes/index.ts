@@ -7,9 +7,14 @@ import { requireAuth } from "../middlewares/require-auth.js";
 import { enemyWiki } from "../models/enemy-wiki.js";
 import { characterWiki } from "../models/character-wiki.js";
 import { pvpRouter } from "./pvp.routes.js";
-import { paymentRouter } from "./payment.routes.js";
+import { adminRouter } from "./admin.routes.js";
+import { supportRouter } from "./support.routes.js";
+import { gameBalance } from "../middlewares/game-balance.js";
+import { patchNotesRouter } from "./patch-notes.routes.js";
 
 export const apiRouter = Router();
+apiRouter.use(gameBalance);
+apiRouter.use("/patch-notes", patchNotesRouter);
 apiRouter.get("/health", healthCheck);
 apiRouter.get("/wiki/enemies", requireAuth, (_req, res) => {
   res.setHeader("Cache-Control", "no-store");
@@ -23,4 +28,5 @@ apiRouter.use("/auth", authRouter);
 apiRouter.use("/character", characterRouter);
 apiRouter.use("/encounters", encounterRouter);
 apiRouter.use("/pvp", pvpRouter);
-apiRouter.use("/payments", paymentRouter);
+apiRouter.use("/admin", adminRouter);
+apiRouter.use("/support", supportRouter);

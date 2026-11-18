@@ -1,0 +1,50 @@
+import "./setup.js";
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import request from "supertest";
+import { app } from "../src/app.js";
+import { prisma } from "../src/lib/prisma.js";
+import { env } from "../src/config/env.js";
+import { hashPassword } from "../src/utils/password.js";
+
+test("only current admins assign cosmetic donation tiers; changes persist and are audited without gameplay rewards", async () => {
+  await prisma.user.create({ data: { id: "donation-admin", username: "donation_admin", name: "Tier Admin", role: "admin", passwordHash: await hashPassword("Admin123!") } });
+  const admin = request.agent(app), player = request.agent(app);
+  await admin.post("/api/auth/login").set("Origin", env.corsOrigin).send({ username: "donation_admin", password: "Admin123!" }).expect(200);
+  const registered = await player.post("/api/auth/register").set("Origin", env.corsOrigin).send({ username: "donation_donor", password: "Player123!", confirmPassword: "Player123!", donationTier: 3, role: "admin" }).expect(201);
+  const id = registered.body.data.user.id;
+  assert.equal(registered.body.data.user.donationTier, 0);
+  assert.equal(registered.body.data.user.role, "player");
+  await player.post("/api/character").set("Origin", env.corsOrigin).send({ name: "Donor Hero", weapon: "bow" }).expect(201);
+  const before = await prisma.user.findUniqueOrThrow({ where: { id } });
+  const characters = await prisma.character.findMany({ where: { userId: id } });
+  const path = `/api/admin/users/${id}/donation-tier`;
+  await request(app).patch(path).send({ tier: 3 }).expect(401);
+  await player.get("/api/admin/donation-tiers").expect(403);
+  await player.patch(path).set("Origin", env.corsOrigin).send({ tier: 3 }).expect(403);
+  await admin.patch(path).send({ tier: 3 }).expect(403);
+  await admin.patch(path).set("Origin", "https://evil.example").send({ tier: 3 }).expect(403);
+  const found = await admin.get("/api/admin/donation-tiers?search=DONATION_DONOR").expect(200);
+  assert.equal(found.body.data.users.length, 1);
+  assert.equal(found.body.data.users[0].id, id);
+  assert.equal(found.body.data.users[0].passwordHash, undefined);
+  for (const tier of [1, 2, 3]) {
+    await admin.patch(path).set("Origin", env.corsOrigin).send({ tier }).expect(200);
+    assert.equal((await player.get("/api/auth/me").expect(200)).body.data.user.donationTier, tier);
+  }
+  await admin.patch(path).set("Origin", env.corsOrigin).send({ tier: 3 }).expect(200);
+  const audit = await prisma.donationTierChange.findMany({ where: { userId: id }, orderBy: { createdAt: "asc" } });
+  assert.deepEqual(audit.map(({ fromTier, toTier, adminId }) => [fromTier, toTier, adminId]), [[0, 1, "donation-admin"], [1, 2, "donation-admin"], [2, 3, "donation-admin"]]);
+  for (const tier of [-1, 4, 1.5, "2", null]) await admin.patch(path).set("Origin", env.corsOrigin).send({ tier }).expect(400);
+  await admin.patch(path).set("Origin", env.corsOrigin).send({ tier: 3, wishCurrency: 9999 }).expect(400);
+  await admin.patch("/api/admin/users/missing/donation-tier").set("Origin", env.corsOrigin).send({ tier: 1 }).expect(404);
+  const after = await prisma.user.findUniqueOrThrow({ where: { id } });
+  for (const key of ["gold", "wishCurrency", "experience", "passwordHash", "role"] as const) assert.equal(after[key], before[key]);
+  assert.deepEqual(await prisma.character.findMany({ where: { userId: id } }), characters);
+  await player.delete("/api/character").set("Origin", env.corsOrigin).expect(204);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id } })).donationTier, 3);
+  await admin.patch(path).set("Origin", env.corsOrigin).send({ tier: 0 }).expect(200);
+  assert.equal((await player.get("/api/auth/me").expect(200)).body.data.user.donationTier, 0);
+  await prisma.user.update({ where: { id: "donation-admin" }, data: { role: "player" } });
+  await admin.patch(path).set("Origin", env.corsOrigin).send({ tier: 3 }).expect(403);
+});
