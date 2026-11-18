@@ -6,6 +6,7 @@ export interface BalanceConfig {
   stats: Record<string, CharacterStats>;
   skills: Record<string, SkillDefinition>;
   enemies: Record<string, EnemyStats>;
+  rewards: Record<string, { gold: number; experience: number }>;
 }
 const context = new AsyncLocalStorage<BalanceConfig>();
 export const currentBalance = () => context.getStore();

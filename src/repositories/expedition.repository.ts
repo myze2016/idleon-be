@@ -130,11 +130,13 @@ export async function resolveEncounters(userId: string, ids: string[], lootRoll?
     }
     const garnalandUnlocked = user.garnalandUnlocked || defeated.includes("demon-prince");
     const goldEarned = defeated.reduce((total, type) => total + enemies[type].gold, 0);
-    const expEarned = defeated.length;
+    const expEarned = defeated.reduce((total, type) => total + enemies[type].experience, 0);
+    if (user.gold + goldEarned > 2147483647 || user.experience + expEarned > 2147483647) throw new HttpError(409, "Battle rewards would exceed this account's gold or experience limit");
     const ownedQuestItems = await tx.questItem.findMany({ where: { userId }, select: { itemId: true } });
     const questItemsEarned = questDrops(defeated, ownedQuestItems.map((item) => item.itemId), lootRoll);
     for (const item of questItemsEarned) await tx.questItem.create({ data: { userId, itemId: item.id } });
     const { wishEarned, levelsGained } = levelUpReward(user.experience, user.experience + expEarned);
+    if (user.wishCurrency + wishEarned > 2147483647) throw new HttpError(409, "Level-up rewards would exceed this account's wish currency limit");
     const bossWon = defeated.includes("mutant-boar");
     const meadowKills = encounters.filter((encounter, i) => encounter.location === "meadow" && encounter.enemyType !== "mutant-boar" && battle.enemyHps[i] <= 0).length;
     const meadowDefeats = bossWon ? 0 : user.meadowDefeats + meadowKills;

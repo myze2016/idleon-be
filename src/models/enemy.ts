@@ -47,9 +47,10 @@ export type EnemyType = keyof typeof defaultEnemies;
 export const enemies = new Proxy(defaultEnemies, {
   get(target, key: string) {
     const original = target[key as EnemyType];
-    return original ? { ...original, stats: currentBalance()?.enemies?.[key] ?? original.stats } : undefined;
+    const reward = currentBalance()?.rewards?.[key];
+    return original ? { ...original, stats: currentBalance()?.enemies?.[key] ?? original.stats, gold: reward?.gold ?? original.gold, experience: reward?.experience ?? 1 } : undefined;
   },
-}) as Record<EnemyType, { name: string; stats: EnemyStats; gold: number }>;
+}) as Record<EnemyType, { name: string; stats: EnemyStats; gold: number; experience: number }>;
 export const enemyPools = {
   deepsea: ["fishpeople-guard", "fishpeople-archer", "fishpeople-rider"],
   "deepsea-2f": ["fishpeople-rider", "baracudon", "fishpeople-cleric"],

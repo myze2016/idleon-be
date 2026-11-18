@@ -5,9 +5,9 @@ import { HttpError } from "../utils/http-error.js";
 import { defaultEnemies, type EnemyStats } from "../models/enemy.js";
 
 export function defaultBalance(): BalanceConfig {
-  return structuredClone({ stats: defaultBaseStats, skills: Object.fromEntries(Object.values(defaultSkills).flat().map(s => [s.id, s])), enemies: Object.fromEntries(Object.entries(defaultEnemies).map(([id, enemy]) => [id, enemy.stats])) });
+  return structuredClone({ stats: defaultBaseStats, skills: Object.fromEntries(Object.values(defaultSkills).flat().map(s => [s.id, s])), enemies: Object.fromEntries(Object.entries(defaultEnemies).map(([id, enemy]) => [id, enemy.stats])), rewards: Object.fromEntries(Object.entries(defaultEnemies).map(([id, enemy]) => [id, { gold: enemy.gold, experience: 1 }])) });
 }
-export function normalizeBalance(config: BalanceConfig): BalanceConfig { return { ...config, enemies: config.enemies ?? defaultBalance().enemies }; }
+export function normalizeBalance(config: BalanceConfig): BalanceConfig { const defaults = defaultBalance(); return { ...config, enemies: config.enemies ?? defaults.enemies, rewards: config.rewards ?? defaults.rewards }; }
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function number(value: unknown, min: number, max: number, integer = false) {
   return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max && (!integer || Number.isInteger(value));
@@ -15,7 +15,13 @@ function number(value: unknown, min: number, max: number, integer = false) {
 /** Accept only known fields and ranges; preserve mechanics, names and damage scaling. */
 export function validateBalance(input: unknown): BalanceConfig {
   const defaults = defaultBalance();
-  if (!record(input) || Object.keys(input).some(k => !["stats", "skills", "enemies"].includes(k)) || !record(input.stats) || !record(input.skills)) throw new HttpError(400, "Invalid balance configuration");
+  if (!record(input) || Object.keys(input).some(k => !["stats", "skills", "enemies", "rewards"].includes(k)) || !record(input.stats) || !record(input.skills)) throw new HttpError(400, "Invalid balance configuration");
+  if (!record(input.rewards) || Object.keys(input.rewards).sort().join() !== Object.keys(defaults.rewards).sort().join()) throw new HttpError(400, "Include every enemy's rewards. Reload the balance editor if needed.");
+  for (const id of Object.keys(defaults.rewards)) {
+    const reward = input.rewards[id];
+    if (!record(reward) || Object.keys(reward).sort().join() !== "experience,gold" || !number(reward.gold, 0, 1000000, true) || !number(reward.experience, 0, 1000000, true)) throw new HttpError(400, `Invalid ${id} rewards. Use whole amounts from 0 to 1,000,000.`);
+    defaults.rewards[id] = { gold: reward.gold as number, experience: reward.experience as number };
+  }
   if (input.enemies === undefined) throw new HttpError(400, "Include every enemy in the balance configuration");
   {
     if (!record(input.enemies) || Object.keys(input.enemies).sort().join() !== Object.keys(defaults.enemies).sort().join()) throw new HttpError(400, "Include every enemy");

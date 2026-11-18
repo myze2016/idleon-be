@@ -34,5 +34,10 @@ export function generatePatchNotes(before: BalanceConfig, after: BalanceConfig):
     }
     compare(previous as unknown as Record<string, unknown>, stats as unknown as Record<string, unknown>, "");
   }
+  for (const [id, reward] of Object.entries(after.rewards ?? {})) {
+    const previous = before.rewards?.[id] ?? { gold: defaultEnemies[id as keyof typeof defaultEnemies].gold, experience: 1 };
+    if (reward.gold !== previous.gold) lines.push(`${name(id)} — Gold reward: ${previous.gold} → ${reward.gold}`);
+    if (reward.experience !== previous.experience) lines.push(`${name(id)} — EXP reward: ${previous.experience} → ${reward.experience}`);
+  }
   return lines;
 }
