@@ -1,3 +1,4 @@
+import { initialGarnalandProgress, garnalandSpecial, advanceGarnaland, type GarnalandProgress } from "../models/garnaland.js";
 import { randomInt } from "node:crypto";
 import { prisma } from "../lib/prisma.js";
 import { Prisma } from "../generated/prisma/client.js";
@@ -28,11 +29,14 @@ export async function spawnEncounter(userId: string, ids: string[], location: Lo
     const owned = await tx.character.findMany({ where: { userId, id: { in: ids } }, include: { artifact: true } });
     if (owned.length !== ids.length) throw new HttpError(400, "Choose characters you own");
     const deep = isDeepSea(location);
+    const garnaland = location === "garnaland";
+    if (garnaland && !user.garnalandUnlocked) throw new HttpError(403, "Defeat Demon Prince to unlock Garnaland");
     if (deep) {
       const map = await tx.questItem.findUnique({ where: { userId_itemId: { userId, itemId: "deepsea-moth-map" } } });
       if (!map || user.deepSeaFloor < deepSeaFloors[location].floor) throw new HttpError(403, "This DeepSea Moot floor is locked");
     }
     const deepProgress = (user.deepSeaProgress ?? {}) as DeepSeaProgress;
+    const garnalandProgress: GarnalandProgress = { ...initialGarnalandProgress(), ...deepProgress.garnaland };
     let spectator = user.tourneySpectator as unknown as TourneySpectator | null;
     if (newExpedition || location !== "tourney" || (spectator && JSON.stringify(spectator.teamIds) !== JSON.stringify(ids))) {
       spectator = newExpedition && location === "tourney" && !user.garnalandUnlocked ? { available: yellowSpectatorAppears(spectatorRoll), teamIds: ids } : null;
@@ -50,24 +54,25 @@ export async function spawnEncounter(userId: string, ids: string[], location: Lo
     if (obsolete.length) await tx.encounter.deleteMany({ where: { id: { in: obsolete.map((encounter) => encounter.id) } } });
     const active = pending.filter((encounter) => !obsolete.includes(encounter));
     if (active.length >= 32) throw new HttpError(409, "Defeat the monsters already on screen first");
-    let target = deep ? deepProgress[location]?.target ?? null : location === "tourney" ? user.tourneyBossAt : location === "harbor" ? user.harborBossAt : location === "meadow" ? user.meadowBossAt : user.forestBossAt;
-    const defeats = deep ? deepProgress[location]?.defeated ?? 0 : location === "tourney" ? user.tourneyDefeats : location === "harbor" ? user.harborDefeats : location === "meadow" ? user.meadowDefeats : user.forestDefeats;
+    let target = garnaland ? garnalandProgress.target : deep ? deepProgress[location]?.target ?? null : location === "tourney" ? user.tourneyBossAt : location === "harbor" ? user.harborBossAt : location === "meadow" ? user.meadowBossAt : user.forestBossAt;
+    const defeats = garnaland ? garnalandProgress.defeated : deep ? deepProgress[location]?.defeated ?? 0 : location === "tourney" ? user.tourneyDefeats : location === "harbor" ? user.harborDefeats : location === "meadow" ? user.meadowDefeats : user.forestDefeats;
     if (target === null) {
       target = deep ? randomInt(30, 41) : location === "tourney" ? randomInt(50, 71) : randomInt(38, 46);
       await tx.user.update({ where: { id: userId }, data: deep ? { deepSeaProgress: { ...deepProgress, [location]: { defeated: defeats, target } } } : location === "tourney" ? { tourneyBossAt: target } : location === "harbor" ? { harborBossAt: target } : location === "meadow" ? { meadowBossAt: target } : { forestBossAt: target } });
     }
     const now = new Date();
     const pool: EnemyType[] = encounterPool(location, now);
-    const bossType = deep ? deepSeaFloors[location].boss : location === "tourney" ? "zugwang" : location === "harbor" ? "fishpeople-guide" : location === "meadow" ? "mutant-boar" : "coco-klan-chief";
+    const bossType = garnaland ? "mushroom-king" : deep ? deepSeaFloors[location].boss : location === "tourney" ? "zugwang" : location === "harbor" ? "fishpeople-guide" : location === "meadow" ? "mutant-boar" : "coco-klan-chief";
     const bossDue = defeats >= target && !active.some((encounter) => enemyRewards(encounter.enemyType as EnemyType).boss);
-    const count = bossDue ? 1 : Math.min(32 - active.length, (deep || location === "tourney") ? randomInt(1, 3) : location === "harbor" ? randomInt(1, 4) : wave && location === "forest" ? randomInt(1, 3) : 1);
+    const special = garnaland ? garnalandSpecial(garnalandProgress, active.map((entry) => entry.enemyType)) : null;
+    const count = (garnaland ? !!special : bossDue) ? 1 : Math.min(32 - active.length, (deep || location === "tourney") ? randomInt(1, 3) : location === "harbor" ? randomInt(1, 4) : wave && location === "forest" ? randomInt(1, 3) : 1);
     const spawned = [];
     for (let index = 0; index < count; index++) {
-      const enemyType = bossDue ? bossType : pool[randomInt(pool.length)];
+      const enemyType = garnaland ? special ?? pool[randomInt(pool.length)] : bossDue ? bossType : pool[randomInt(pool.length)];
       const encounter = await tx.encounter.create({ data: { userId, teamIds: ids, enemyType, location } });
       spawned.push({ id: encounter.id, location, ...enemyRewards(enemyType) });
     }
-    return { ...spawned[0], tourneyProgress: { defeated: user.tourneyDefeats, target: location === "tourney" ? target : user.tourneyBossAt }, period: location === "harbor" ? harborPeriod(now) : undefined, harborProgress: { defeated: user.harborDefeats, target: location === "harbor" ? target : user.harborBossAt }, additionalEnemies: spawned.slice(1),
+    return { ...spawned[0], garnalandProgress: garnaland ? garnalandProgress : undefined, tourneyProgress: { defeated: user.tourneyDefeats, target: location === "tourney" ? target : user.tourneyBossAt }, period: location === "harbor" ? harborPeriod(now) : undefined, harborProgress: { defeated: user.harborDefeats, target: location === "harbor" ? target : user.harborBossAt }, additionalEnemies: spawned.slice(1),
       deepSeaProgress: deep ? { defeated: defeats, target } : undefined,
       yellowSpectator: location === "tourney" && !user.garnalandUnlocked && !!spectator?.available,
       spectatorGroup: spectator?.group ?? 0,
@@ -123,6 +128,9 @@ export async function resolveEncounters(userId: string, ids: string[], lootRoll?
       if (bossWon) deepSeaFloor = Math.max(deepSeaFloor, Math.min(3, deepSeaFloors[deepLocation].floor + 1));
     }
     const defeated = types.filter((_, i) => battle.enemyHps[i] <= 0);
+    if (encounters[0].location === "garnaland") {
+      deepProgress.garnaland = advanceGarnaland({ ...initialGarnalandProgress(), ...deepProgress.garnaland }, defeated);
+    }
     const artifactsEarned = [];
     for (const drop of artifactDrops(defeated, artifactRoll)) {
       const artifact = await tx.artifact.create({ data: { userId, stat: drop.stat } });
@@ -155,6 +163,7 @@ export async function resolveEncounters(userId: string, ids: string[], lootRoll?
     const tourneyBossAt = zugwangWon ? randomInt(50, 71) : user.tourneyBossAt;
     const result = { ...battle, initialTeamHp: fighters.map((fighter) => fighter.hp), initialTeamMp: fighters.map((fighter) => fighter.mp), goldEarned, wishEarned, levelsGained, expEarned, encounterIds: encounters.map((encounter) => encounter.id),
       deepSeaFloor, deepSeaJustUnlocked: deepSeaFloor > user.deepSeaFloor, ...(isDeepSea(deepLocation) ? { deepSeaProgress: deepProgress[deepLocation] } : {}),
+      garnalandProgress: encounters[0].location === "garnaland" ? deepProgress.garnaland : undefined,
       garnalandUnlocked, garnalandJustUnlocked: !user.garnalandUnlocked && garnalandUnlocked,
       artifactsEarned, questItemsEarned, enemies: encounters.map((encounter, index) => ({ id: encounter.id, summoned: index >= originalCount, ...enemyRewards(encounter.enemyType as EnemyType) })) };
     const battleId = encounters[0].id;

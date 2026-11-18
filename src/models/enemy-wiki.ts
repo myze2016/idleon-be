@@ -28,14 +28,14 @@ function enemySkills(stats: EnemyStats): WikiSkill[] {
 }
 
 export function enemyWiki() {
-  const locationNames: Record<string, string> = { meadow: "Meadow", forest: "Forest", harbor: "Harbor · Day", tourney: "Zugwangs Battle Tourney", ...Object.fromEntries(Object.entries(deepSeaFloors).map(([id, floor]) => [id, floor.name])) };
-  const bosses: Partial<Record<EnemyType, string>> = { "mutant-boar": "Meadow", "coco-klan-chief": "Forest", "fishpeople-guide": "Harbor · Day and Night", zugwang: "Zugwangs Battle Tourney", "demon-prince": "Zugwangs Battle Tourney · Yellow spectator", ...Object.fromEntries(Object.values(deepSeaFloors).map((floor) => [floor.boss, floor.name])) };
+  const locationNames: Record<string, string> = { garnaland: "Garnaland", meadow: "Meadow", forest: "Forest", harbor: "Harbor · Day", tourney: "Zugwangs Battle Tourney", ...Object.fromEntries(Object.entries(deepSeaFloors).map(([id, floor]) => [id, floor.name])) };
+  const bosses: Partial<Record<EnemyType, string>> = { "mushroom-king": "Garnaland", "mushroom-chicken": "Garnaland", "mutant-boar": "Meadow", "coco-klan-chief": "Forest", "fishpeople-guide": "Harbor · Day and Night", zugwang: "Zugwangs Battle Tourney", "demon-prince": "Zugwangs Battle Tourney · Yellow spectator", ...Object.fromEntries(Object.values(deepSeaFloors).map((floor) => [floor.boss, floor.name])) };
   return (Object.keys(enemies) as EnemyType[]).map((id) => {
     const enemy = enemies[id], { hp, mp, atk, def, magic, magicDef, speed, range } = enemy.stats;
     const locations = Object.entries(enemyPools).filter(([, pool]) => (pool as string[]).includes(id)).map(([location]) => locationNames[location]);
     if (["crab-night", "fishpeople-spearman", "fishpeople-hunter", "fishpeople-magos"].includes(id)) locations.push("Harbor · Night");
     if (bosses[id]) locations.push(bosses[id]!);
-    return { id, name: enemy.name, boss: enemyRewards(id).boss, locations, stats: { hp, mp, atk, def, magic, magicDef, speed, range },
+    return { id, name: enemy.name, boss: enemyRewards(id).boss, semiBoss: enemyRewards(id).semiBoss, locations, stats: { hp, mp, atk, def, magic, magicDef, speed, range },
       gold: enemy.gold, experience: enemy.experience, attackInterval: actionDuration(speed), skills: enemySkills(enemy.stats),
       note: id === "fishpeople-lord" ? "10% chance to drop a Deep Sea Artifact: +5 Magic and +5 Defense when equipped." : id === "fishpeople-rider" ? "Rides a barracuda." : id === "baracudon" ? "A giant barracuda." : id === "crab-day" ? "Day variant: midnight–noon, Asia/Manila." : id === "crab-night" ? "Night variant: noon–midnight, Asia/Manila." : null };
   }).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));

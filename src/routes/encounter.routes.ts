@@ -15,7 +15,7 @@ encounterRouter.use((req, res, next) => {
 });
 encounterRouter.post("/", async (req, res) => {
   const { location, teamIds } = req.body ?? {};
-  if (location !== "forest" && location !== "meadow" && location !== "harbor" && location !== "tourney" && !isDeepSea(location)) throw new HttpError(400, "Choose Meadow, Forest, Harbor, or Zugwangs Battle Tourney");
+  if (location !== "garnaland" && location !== "forest" && location !== "meadow" && location !== "harbor" && location !== "tourney" && !isDeepSea(location)) throw new HttpError(400, "Choose Meadow, Forest, Harbor, Zugwangs Battle Tourney, or Garnaland");
   if (!Array.isArray(teamIds) || !teamIds.length || teamIds.length > 6 || teamIds.some((id) => typeof id !== "string") || new Set(teamIds).size !== teamIds.length) {
     throw new HttpError(400, "Choose 1–6 different characters");
   }

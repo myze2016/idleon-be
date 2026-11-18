@@ -11,6 +11,11 @@ export interface EnemyStats extends CharacterStats {
 }
 
 export const defaultEnemies = {
+  "mushroom-fighter": { name: "Mushroom Fighter", stats: { hp: 250, mp: 0, atk: 25, def: 5, magic: 0, magicDef: 0, speed: 0, range: "melee" }, gold: 60 },
+  "mushroom-rager": { name: "Mushroom Rager", stats: { hp: 220, mp: 0, atk: 35, def: 2, magic: 0, magicDef: 0, speed: 10, range: "melee" }, gold: 70 },
+  fairy: { name: "Fairy", stats: { hp: 160, mp: 0, atk: 22, def: 0, magic: 12, magicDef: 8, speed: 15, range: "range" }, gold: 80 },
+  "mushroom-chicken": { name: "Mushroom Chicken", stats: { hp: 600, mp: 0, atk: 40, def: 8, magic: 0, magicDef: 5, speed: 5, range: "melee" }, gold: 200 },
+  "mushroom-king": { name: "Mushroom King", stats: { hp: 1600, mp: 0, atk: 45, def: 12, magic: 0, magicDef: 10, speed: 5, range: "melee" }, gold: 600 },
   "fishpeople-guard": { name: "Fishpeople Guard", stats: { hp: 250, mp: 50, atk: 20, def: 5, magic: 0, magicDef: 5, speed: 0, range: "melee", fishpeople: true, skill: { kind: "guard", name: "Guard Mode", mana: 50, cooldown: 2, duration: 2 } }, gold: 100 },
   "fishpeople-archer": { name: "Fishpeople Archer", stats: { hp: 200, mp: 50, atk: 20, def: 5, magic: 0, magicDef: 5, speed: 0, range: "range", fishpeople: true, skill: { kind: "shot", name: "Sniper Shot", mana: 50, cooldown: 1, damage: 50 } }, gold: 100 },
   "fishpeople-rider": { name: "Fishpeople Rider", stats: { hp: 300, mp: 0, atk: 20, def: 5, magic: 0, magicDef: 5, speed: 0, range: "melee", fishpeople: true }, gold: 100 },
@@ -52,6 +57,7 @@ export const enemies = new Proxy(defaultEnemies, {
   },
 }) as Record<EnemyType, { name: string; stats: EnemyStats; gold: number; experience: number }>;
 export const enemyPools = {
+  garnaland: ["mushroom-fighter", "mushroom-rager", "fairy"],
   deepsea: ["fishpeople-guard", "fishpeople-archer", "fishpeople-rider"],
   "deepsea-2f": ["fishpeople-rider", "baracudon", "fishpeople-cleric"],
   "deepsea-palace": ["fishpeople-knight", "fishpeople-rifler", "fishpeople-baron"],
@@ -62,8 +68,8 @@ export const enemyPools = {
 } satisfies Record<string, EnemyType[]>;
 export type Location = keyof typeof enemyPools;
 export function enemyRewards(type: EnemyType) {
-  const boss = type === "fishpeople-guardian" || type === "fishpeople-researcher" || type === "fishpeople-lord" || type === "demon-prince" || type === "zugwang" || type === "mutant-boar" || type === "coco-klan-chief" || type === "fishpeople-guide";
-  return { ...enemies[type], type, boss, wishCurrency: 0 };
+  const boss = type === "mushroom-king" || type === "fishpeople-guardian" || type === "fishpeople-researcher" || type === "fishpeople-lord" || type === "demon-prince" || type === "zugwang" || type === "mutant-boar" || type === "coco-klan-chief" || type === "fishpeople-guide";
+  return { ...enemies[type], type, boss, semiBoss: type === "mushroom-chicken", wishCurrency: 0 };
 }
 
 export function harborPeriod(now = new Date()): "day" | "night" {

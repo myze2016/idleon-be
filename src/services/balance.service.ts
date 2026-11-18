@@ -7,7 +7,7 @@ import { defaultEnemies, type EnemyStats } from "../models/enemy.js";
 export function defaultBalance(): BalanceConfig {
   return structuredClone({ stats: defaultBaseStats, skills: Object.fromEntries(Object.values(defaultSkills).flat().map(s => [s.id, s])), enemies: Object.fromEntries(Object.entries(defaultEnemies).map(([id, enemy]) => [id, enemy.stats])), rewards: Object.fromEntries(Object.entries(defaultEnemies).map(([id, enemy]) => [id, { gold: enemy.gold, experience: 1 }])) });
 }
-export function normalizeBalance(config: BalanceConfig): BalanceConfig { const defaults = defaultBalance(); return { ...config, enemies: config.enemies ?? defaults.enemies, rewards: config.rewards ?? defaults.rewards }; }
+export function normalizeBalance(config: BalanceConfig): BalanceConfig { const defaults = defaultBalance(); return { ...config, enemies: { ...defaults.enemies, ...config.enemies }, rewards: { ...defaults.rewards, ...config.rewards } }; }
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function number(value: unknown, min: number, max: number, integer = false) {
   return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max && (!integer || Number.isInteger(value));

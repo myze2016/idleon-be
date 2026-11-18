@@ -4,5 +4,5 @@ export const deepSeaFloors = {
   "deepsea-palace": { name: "DeepSea Moot Royal Palace", floor: 3, boss: "fishpeople-lord" },
 } as const;
 export type DeepSeaLocation = keyof typeof deepSeaFloors;
-export type DeepSeaProgress = Partial<Record<DeepSeaLocation, { defeated: number; target: number }>>;
+export type DeepSeaProgress = Partial<Record<DeepSeaLocation | "garnaland", { defeated: number; target: number; chickenAt?: number }>>;
 export function isDeepSea(location: string): location is DeepSeaLocation { return Object.hasOwn(deepSeaFloors, location); }
