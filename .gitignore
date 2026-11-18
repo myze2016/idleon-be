@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .env
+railway.env
 .env.*
 !.env.example
 coverage/
