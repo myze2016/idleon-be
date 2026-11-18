@@ -47,6 +47,7 @@ model User {
   supportReviews SupportSubmission[] @relation("SupportReviewer")
   wishGrants WishCurrencyGrant[] @relation("WishGrantRecipient")
   wishGrantsMade WishCurrencyGrant[] @relation("WishGrantAdmin")
+  accountGrantEntries AccountGrantEntry[]
   gold         Int @default(0)
   experience   Int @default(0)
   meadowDefeats Int @default(0) @map("meadow_defeats")
@@ -231,6 +232,8 @@ model SupportSettings {
 }
 
 model WishCurrencyGrant {
+  batchId String? @map("batch_id") @db.VarChar(36)
+  batch WishCurrencyBatch? @relation(fields: [batchId], references: [requestKey], onDelete: Restrict)
   id String @id @default(cuid()) @db.VarChar(30)
   requestKey String @unique @map("request_key") @db.VarChar(36)
   userId String @map("user_id") @db.VarChar(30)
@@ -244,6 +247,52 @@ model WishCurrencyGrant {
 
   @@index([userId, createdAt])
   @@map("wish_currency_grants")
+}
+
+model WishCurrencyBatch {
+  requestKey String @id @map("request_key") @db.VarChar(36)
+  adminId String @map("admin_id") @db.VarChar(30)
+  donationTier Int @map("donation_tier")
+  amount Int
+  recipientsHash String @map("recipients_hash") @db.VarChar(64)
+  recipientIds Json @map("recipient_ids")
+  recipientCount Int @map("recipient_count")
+  createdAt DateTime @default(now()) @map("created_at")
+  grants WishCurrencyGrant[]
+  @@map("wish_currency_batches")
+}
+
+model AccountGrant {
+  requestKey String @id @map("request_key") @db.VarChar(36)
+  adminId String @map("admin_id") @db.VarChar(30)
+  kind String @db.VarChar(10)
+  amount Int
+  targetUserId String? @map("target_user_id") @db.VarChar(30)
+  donationTier Int? @map("donation_tier")
+  recipientsHash String? @map("recipients_hash") @db.VarChar(64)
+  result Json
+  createdAt DateTime @default(now()) @map("created_at")
+  entries AccountGrantEntry[]
+  @@map("account_grants")
+}
+
+model AccountGrantEntry {
+  id String @id @default(cuid()) @db.VarChar(30)
+  requestKey String @map("request_key") @db.VarChar(36)
+  grant AccountGrant @relation(fields: [requestKey], references: [requestKey], onDelete: Restrict)
+  userId String @map("user_id") @db.VarChar(30)
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  goldBefore Int @map("gold_before")
+  goldAfter Int @map("gold_after")
+  experienceBefore Int @map("experience_before")
+  experienceAfter Int @map("experience_after")
+  wishBefore Int @map("wish_before")
+  wishAfter Int @map("wish_after")
+  levelBefore Int @map("level_before")
+  levelAfter Int @map("level_after")
+  @@unique([requestKey, userId])
+  @@index([userId])
+  @@map("account_grant_entries")
 }
 
 model SupportSubmission {

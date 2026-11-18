@@ -11,6 +11,8 @@ try {
     donationTierChange: await tx.donationTierChange.findMany(),
     supportSettings: await tx.supportSettings.findMany(), supportSubmission: await tx.supportSubmission.findMany(),
     wishCurrencyGrant: await tx.wishCurrencyGrant.findMany(),
+    wishCurrencyBatch: await tx.wishCurrencyBatch.findMany(),
+    accountGrant: await tx.accountGrant.findMany(), accountGrantEntry: await tx.accountGrantEntry.findMany(),
     gameBalance: await tx.gameBalance.findMany(), balanceRevision: await tx.balanceRevision.findMany(),
   }), { isolationLevel: "RepeatableRead", timeout: 60000 });
   await mkdir("data", { recursive: true });

@@ -6,6 +6,9 @@ import { isAllowedOrigin } from "../config/origin.js";
 import { HttpError } from "../utils/http-error.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { balanceRouter } from "./balance.routes.js";
+import { wishGrantsRouter } from "./wish-grants.routes.js";
+import { accountGrantsRouter } from "./account-grants.routes.js";
+import { accountProgress } from "../models/account-progress.js";
 
 export const adminRouter = Router();
 adminRouter.use(requireAuth);
@@ -20,12 +23,14 @@ adminRouter.use(async (req, res, next) => {
 adminRouter.use(rateLimit({ windowMs: 60000, limit: 30, keyGenerator: (req) => req.session.user!.id,
   standardHeaders: "draft-8", legacyHeaders: false, message: { error: { message: "Too many admin requests. Try again shortly." } } }));
 adminRouter.use("/balance", balanceRouter);
+adminRouter.use("/wish-currency", wishGrantsRouter);
+adminRouter.use("/account-grants", accountGrantsRouter);
 adminRouter.get("/donation-tiers", async (req, res) => {
   if (req.query.search !== undefined && (typeof req.query.search !== "string" || req.query.search.length > 100)) throw new HttpError(400, "Enter a valid username");
   const search = String(req.query.search ?? "").trim();
-  const users = await prisma.user.findMany({ where: search ? { OR: [{ username: { contains: search, mode: "insensitive" } }, { characters: { some: { name: { contains: search, mode: "insensitive" } } } }] } : {},
-    take: 20, orderBy: { username: "asc" }, select: { id: true, username: true, name: true, donationTier: true, wishCurrency: true, characters: { select: { id: true, name: true }, orderBy: { name: "asc" } } } });
-  res.json({ data: { users } });
+  const users = await prisma.user.findMany({ where: search ? { OR: [{ id: search }, { name: { contains: search, mode: "insensitive" } }, { username: { contains: search, mode: "insensitive" } }, { characters: { some: { name: { contains: search, mode: "insensitive" } } } }] } : {},
+    take: 20, orderBy: { username: "asc" }, select: { id: true, username: true, name: true, donationTier: true, wishCurrency: true, gold: true, experience: true, characters: { select: { id: true, name: true }, orderBy: { name: "asc" } } } });
+  res.json({ data: { users: users.map(user => ({ ...user, level: accountProgress(user.experience).level })) } });
 });
 adminRouter.patch("/users/:id/donation-tier", async (req, res) => {
   const tier = req.body?.tier;
@@ -51,9 +56,12 @@ adminRouter.post("/users/:id/wish-currency", async (req, res) => {
   const userId = String(req.params.id), adminId = req.session.user!.id;
   try {
     const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestKey}, 0))::text`;
       await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
       const user = await tx.user.findUnique({ where: { id: userId } });
       if (!user) throw new HttpError(404, "Account not found");
+      if (await tx.wishCurrencyBatch.findUnique({ where: { requestKey } })) throw new HttpError(409, "This grant request key was already used");
+      if (await tx.accountGrant.findUnique({ where: { requestKey } })) throw new HttpError(409, "This grant request key was already used");
       const existing = await tx.wishCurrencyGrant.findUnique({ where: { requestKey } });
       if (existing && (existing.userId !== userId || existing.adminId !== adminId || existing.amount !== amount)) throw new HttpError(409, "This grant request key was already used");
       if (!existing) {

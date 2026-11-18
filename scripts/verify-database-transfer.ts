@@ -20,6 +20,8 @@ try {
     donationTierChange: await prisma.donationTierChange.findMany(),
     supportSettings: await prisma.supportSettings.findMany(), supportSubmission: await prisma.supportSubmission.findMany(),
     wishCurrencyGrant: await prisma.wishCurrencyGrant.findMany(),
+    wishCurrencyBatch: await prisma.wishCurrencyBatch.findMany(),
+    accountGrant: await prisma.accountGrant.findMany(), accountGrantEntry: await prisma.accountGrantEntry.findMany(),
     gameBalance: await prisma.gameBalance.findMany(), balanceRevision: await prisma.balanceRevision.findMany(),
   };
   for (const [table, rows] of Object.entries(actual)) {
