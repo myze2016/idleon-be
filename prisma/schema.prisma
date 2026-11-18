@@ -34,6 +34,10 @@ enum Weapon {
 model User {
   id           String     @id @default(cuid()) @db.VarChar(30)
   username     String     @unique @db.VarChar(100)
+  email        String?    @unique @db.VarChar(254)
+  googleSubject String?   @unique @map("google_subject") @db.VarChar(255)
+  supportPhoneLast4 String? @map("support_phone_last4") @db.VarChar(4)
+  supportIdentifiedAt DateTime? @map("support_identified_at")
   name         String     @db.VarChar(100)
   passwordHash String     @map("password_hash") @db.VarChar(255)
   role         Role       @default(player)
@@ -74,6 +78,16 @@ model User {
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
   @@map("users")
+}
+
+model RegistrationCode {
+  email String @id @db.VarChar(254)
+  codeHash String @map("code_hash") @db.VarChar(255)
+  expiresAt DateTime @map("expires_at")
+  sentAt DateTime @map("sent_at")
+  attempts Int @default(0)
+
+  @@map("registration_codes")
 }
 
 model PvpRoom {

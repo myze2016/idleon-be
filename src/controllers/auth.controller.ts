@@ -1,5 +1,6 @@
 import type { RequestHandler } from "express";
-import { authenticate, registerPlayer } from "../services/auth.service.js";
+import { authenticate } from "../services/auth.service.js";
+import { createVerifiedPlayer, registrationEmail, sendRegistrationCode } from "../services/registration-code.service.js";
 import { HttpError } from "../utils/http-error.js";
 import { sessionCookie, sessionCookieName } from "../middlewares/session.js";
 import { findUserById } from "../repositories/user.repository.js";
@@ -18,7 +19,7 @@ function startSession(req: Request, res: Response, next: NextFunction, user: Use
 }
 
 export const register: RequestHandler = async (req, res, next) => {
-  const { username, password, confirmPassword } = req.body ?? {};
+  const { username, password, confirmPassword, email: inputEmail, code } = req.body ?? {};
   if (typeof username !== "string" || !/^[a-zA-Z0-9_]{3,30}$/.test(username.trim())) {
     throw new HttpError(400, "Username must be 3–30 letters, numbers, or underscores");
   }
@@ -26,8 +27,15 @@ export const register: RequestHandler = async (req, res, next) => {
     throw new HttpError(400, "Password must be 8–256 characters");
   }
   if (confirmPassword !== password) throw new HttpError(400, "Passwords do not match");
-  const user = await registerPlayer(username.trim(), password);
+  const email = registrationEmail(inputEmail);
+  if (typeof code !== "string" || !/^\d{6}$/.test(code)) throw new HttpError(400, "Enter the six-digit email verification code");
+  const user = await createVerifiedPlayer(username.trim(), password, email, code);
   startSession(req, res, next, user, 201);
+};
+
+export const requestRegistrationCode: RequestHandler = async (req, res) => {
+  await sendRegistrationCode(registrationEmail(req.body?.email));
+  res.json({ data: { message: "Verification code sent. Check your email.", expiresIn: 600 } });
 };
 
 export const login: RequestHandler = async (req, res, next) => {

@@ -17,6 +17,7 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
+    "admin:password": "tsx scripts/set-admin-password.ts",
     "db:export": "tsx scripts/export-database.ts",
     "db:import": "tsx scripts/import-database.ts",
     "db:verify-transfer": "tsx scripts/verify-database-transfer.ts",
@@ -31,6 +32,7 @@
     "express": "^5.3.0",
     "express-rate-limit": "^8.7.4",
     "express-session": "^1.19.0",
+    "google-auth-library": "^11.3.4",
     "helmet": "^8.3.0",
     "pg": "^8.23.1"
   },

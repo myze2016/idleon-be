@@ -6,12 +6,13 @@ import { app } from "../src/app.js";
 import { env } from "../src/config/env.js";
 import { prisma } from "../src/lib/prisma.js";
 import { verifyPassword } from "../src/utils/password.js";
+import { registrationProof } from "./registration-helper.js";
 
 test("registration creates a player session, stores a hash, and grants starter wishes once", async () => {
   const agent = request.agent(app);
   const password = "NewPlayer123!";
   const response = await agent.post("/api/auth/register").set("Origin", env.corsOrigin)
-    .send({ username: " New_Player ", password, confirmPassword: password, role: "admin", gold: 999999, wishCurrency: 999 }).expect(201);
+    .send({ ...await registrationProof("new_player"), username: " New_Player ", password, confirmPassword: password, role: "admin", gold: 999999, wishCurrency: 999 }).expect(201);
   const user = response.body.data.user;
   assert.equal(user.username, "new_player");
   assert.equal(user.role, "player");
@@ -21,6 +22,8 @@ test("registration creates a player session, stores a hash, and grants starter w
   assert.equal((await agent.get("/api/auth/me").expect(200)).body.data.user.id, user.id);
   const stored = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
   assert.notEqual(stored.passwordHash, password);
+  assert.equal(stored.email, "new_player@example.com");
+  assert.equal(await prisma.registrationCode.findUnique({ where: { email: stored.email! } }), null);
   assert.equal(await verifyPassword(password, stored.passwordHash), true);
   assert.equal(stored.gold, 0); assert.equal(stored.wishCurrency, 0); assert.equal(stored.starterCreated, false);
   assert.equal((await agent.get("/api/character").expect(200)).body.data.character, null);
@@ -33,7 +36,7 @@ test("registration creates a player session, stores a hash, and grants starter w
 });
 
 test("registration validates input, rejects duplicate usernames atomically, and limits attempts", async () => {
-  const valid = { username: "duel_player", password: "Player123!", confirmPassword: "Player123!" };
+  const valid = { ...await registrationProof("duel_player"), username: "duel_player", password: "Player123!", confirmPassword: "Player123!" };
   for (const origin of [undefined, "https://other.example"]) {
     const req = request(app).post("/api/auth/register");
     if (origin) req.set("Origin", origin);
@@ -45,7 +48,7 @@ test("registration validates input, rejects duplicate usernames atomically, and 
     await invalid.post("/api/auth/register").set("Origin", env.corsOrigin).send(input).expect(400);
   }
   await invalid.get("/api/auth/me").expect(401);
-  const results = await Promise.all([valid, { ...valid, username: "DUEL_PLAYER" }].map((input) =>
+  const results = await Promise.all([valid, { ...valid, ...await registrationProof("duel_player_2"), username: "DUEL_PLAYER" }].map((input) =>
     request(app).post("/api/auth/register").set("Origin", env.corsOrigin).send(input)));
   assert.deepEqual(results.map((response) => response.status).sort(), [201, 409]);
   assert.equal(await prisma.user.count({ where: { username: valid.username } }), 1);

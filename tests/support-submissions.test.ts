@@ -6,6 +6,7 @@ import { app } from "../src/app.js";
 import { prisma } from "../src/lib/prisma.js";
 import { env } from "../src/config/env.js";
 import { hashPassword } from "../src/utils/password.js";
+import { registrationProof } from "./registration-helper.js";
 import { supportAmount } from "../src/models/support-amount.js";
 
 test("donation amounts accept custom pesos and centavos and derive skin milestones", () => {
@@ -20,7 +21,7 @@ test("support QR and sender claims require private admin review; submissions nev
   await prisma.user.create({ data: { id: "support-admin", username: "support_admin", name: "Admin", role: "admin", passwordHash: await hashPassword("Admin123!") } });
   const admin = request.agent(app), player = request.agent(app);
   await admin.post("/api/auth/login").set("Origin", env.corsOrigin).send({ username: "support_admin", password: "Admin123!" }).expect(200);
-  const registration = await player.post("/api/auth/register").set("Origin", env.corsOrigin).send({ username: "support_sender", password: "Player123!", confirmPassword: "Player123!" }).expect(201);
+  const registration = await player.post("/api/auth/register").set("Origin", env.corsOrigin).send({ ...await registrationProof("support_sender"), username: "support_sender", password: "Player123!", confirmPassword: "Player123!" }).expect(201);
   const id = registration.body.data.user.id;
   await request(app).get("/api/support").expect(401);
   await request(app).post("/api/support/submissions").expect(401);

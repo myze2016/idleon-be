@@ -14,9 +14,19 @@ supportRouter.use((req, res, next) => {
   if (req.method === "POST" && !isAllowedOrigin(req.get("origin"))) throw new HttpError(403, "Request origin is not allowed");
   next();
 });
-supportRouter.get("/", async (_req, res) => {
+supportRouter.get("/", async (req, res) => {
   const settings = await prisma.supportSettings.findUnique({ where: { id: 1 } });
-  res.json({ data: { qrImage: settings?.qrImage ?? null } });
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.session.user!.id }, select: { supportPhoneLast4: true } });
+  res.json({ data: { qrImage: settings?.qrImage ?? null, phoneLast4: user.supportPhoneLast4 } });
+});
+supportRouter.post("/identity", rateLimit({ windowMs: 15 * 60000, limit: 10, keyGenerator: (req) => req.session.user!.id,
+  standardHeaders: "draft-8", legacyHeaders: false, message: { error: { message: "Too many updates. Please try again later." } } }), async (req, res) => {
+  const { phoneLast4 } = req.body ?? {};
+  if (typeof phoneLast4 !== "string" || !/^\d{4}$/.test(phoneLast4) || Object.keys(req.body).some((key) => key !== "phoneLast4")) {
+    throw new HttpError(400, "Enter only the last four digits of your phone number");
+  }
+  const user = await prisma.user.update({ where: { id: req.session.user!.id }, data: { supportPhoneLast4: phoneLast4, supportIdentifiedAt: new Date() }, select: { supportPhoneLast4: true } });
+  res.json({ data: { phoneLast4: user.supportPhoneLast4 } });
 });
 supportRouter.post("/submissions", rateLimit({ windowMs: 15 * 60000, limit: 5, keyGenerator: (req) => req.session.user!.id,
   standardHeaders: "draft-8", legacyHeaders: false, message: { error: { message: "Too many submissions. Please wait before trying again." } } }), async (req, res) => {

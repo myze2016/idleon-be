@@ -10,9 +10,17 @@ Seeding again replenishes minimum test currencies without duplicating characters
 or resetting existing upgrades. Other accounts receive no test grants.
 
 Start this API and the frontend with `npm.cmd run dev` in separate terminals.
-Open http://localhost:3020/login and sign in with `admin` / `Admin123!`.
+Set unique `SEED_ADMIN_PASSWORD` and `SEED_PLAYER_PASSWORD` values (12–256 characters)
+in the backend `.env` before seeding. Open http://localhost:3020/login and sign in
+as `admin` using `SEED_ADMIN_PASSWORD`. Keep `.env` private; it is ignored by Git.
 Run `npm run db:seed` once to create this database account. The seed is disabled
 in production and does not reset an existing account's password.
+
+To change an existing admin password, set `SEED_ADMIN_PASSWORD` in `.env` and run
+`npm.cmd run admin:password`. This updates only the `admin` account's password,
+invalidates its saved sessions, and preserves its characters and progress.
+The command never prints passwords. Test fixtures use separate, disposable
+database credentials; never reuse test passwords for real accounts.
 
 Authentication endpoints: `POST /api/auth/login`, `GET /api/auth/me`, and
 `POST /api/auth/logout`. POST requests must include the configured frontend Origin.
@@ -78,7 +86,7 @@ can read or send messages. Messages are plain text, limited to 300 characters an
 including across rematches. Closed, canceled, or expired rooms reject new sends.
 
 The login screen's Create account button registers additional players.
-`npm run db:seed` also creates `player2` / `Player123!`
+`npm run db:seed` also creates `player2` using `SEED_PLAYER_PASSWORD` from the backend `.env`.
 without resetting existing accounts. On first login, player2 chooses a starter.
 Use separate devices or a normal browser and an incognito window for two sessions.
 
@@ -133,20 +141,23 @@ after balances. Player views refresh balances within 30 seconds or on refocus.
 The login screen does not display or autofill development account credentials.
 
 Admins upload their receiving GCash QR on the dashboard under **Admin · Donation QR & submissions**
-(PNG/JPEG, maximum 512 KB). **Donate any amount · Show QR** displays it; after sending,
-supporters submit the actual amount, sender mobile number, and transaction reference. The
-authenticated account is linked automatically. Numbers are normalized to +63,
-references cannot be reused, and PostgreSQL stores the claimed amount as
-DECIMAL(12,2). The server derives the qualifying tier from the amount instead of
-accepting a client-selected tier. `POST /api/support/submissions` creates a pending claim, never a confirmed
-payment or an automatic reward. Only admins can read sender details through
+(PNG/JPEG, maximum 512 KB). **Donate any amount** first prompts **Let us know who you are**.
+Supporters enter only the last four digits of the phone number they will use.
+`POST /api/support/identity` accepts `{ phoneLast4: "0012" }` and saves it to the
+authenticated account, preserving leading zeros. The QR appears after saving.
+No amount, full phone number, or transaction reference is requested in this flow.
+`GET /api/support` returns the current user's saved digits and QR; only admins
+can list accounts and saved digits through `GET /api/admin/support-identities`.
+Saving identification does not confirm a payment or activate a supporter tier.
+
+Previous pending claims remain available to admins through
 `GET /api/admin/support-submissions`. After checking actual receipt in their own
 GCash history, an admin can approve or reject using
 `PATCH /api/admin/support-submissions/:id`. Approval records the reviewer/time and
 activates the tier atomically; repeat approvals are harmless and lower-tier
 contributions never downgrade an existing higher tier. `PUT /api/admin/support-qr`
 accepts a validated raster data URL or null to remove it. Without a QR configured,
-the support form explains that it is not ready and refuses submissions.
+the support screen explains that the QR is not ready; phone endings can still be saved.
 
 Player AI in PvE and PvP saves mana for an unlocked active Skill 2 when it is off
 cooldown but unaffordable. It skips mana-consuming Skill 1 casts and uses basic

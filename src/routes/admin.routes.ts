@@ -90,6 +90,11 @@ adminRouter.put("/support-qr", async (req, res) => {
   await prisma.supportSettings.upsert({ where: { id: 1 }, create: { id: 1, qrImage: image }, update: { qrImage: image } });
   res.json({ data: { qrImage: image } });
 });
+adminRouter.get("/support-identities", async (_req, res) => {
+  const users = await prisma.user.findMany({ where: { supportPhoneLast4: { not: null } }, orderBy: { supportIdentifiedAt: "desc" }, take: 100,
+    select: { id: true, username: true, supportPhoneLast4: true, supportIdentifiedAt: true } });
+  res.json({ data: { users } });
+});
 adminRouter.get("/support-submissions", async (_req, res) => {
   const submissions = await prisma.supportSubmission.findMany({ where: { status: "pending" }, orderBy: { createdAt: "asc" }, take: 50,
     select: { id: true, tier: true, amount: true, phone: true, reference: true, createdAt: true, user: { select: { id: true, username: true } } } });

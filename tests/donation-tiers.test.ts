@@ -6,12 +6,13 @@ import { app } from "../src/app.js";
 import { prisma } from "../src/lib/prisma.js";
 import { env } from "../src/config/env.js";
 import { hashPassword } from "../src/utils/password.js";
+import { registrationProof } from "./registration-helper.js";
 
 test("only current admins assign cosmetic donation tiers; changes persist and are audited without gameplay rewards", async () => {
   await prisma.user.create({ data: { id: "donation-admin", username: "donation_admin", name: "Tier Admin", role: "admin", passwordHash: await hashPassword("Admin123!") } });
   const admin = request.agent(app), player = request.agent(app);
   await admin.post("/api/auth/login").set("Origin", env.corsOrigin).send({ username: "donation_admin", password: "Admin123!" }).expect(200);
-  const registered = await player.post("/api/auth/register").set("Origin", env.corsOrigin).send({ username: "donation_donor", password: "Player123!", confirmPassword: "Player123!", donationTier: 3, role: "admin" }).expect(201);
+  const registered = await player.post("/api/auth/register").set("Origin", env.corsOrigin).send({ ...await registrationProof("donation_donor"), username: "donation_donor", password: "Player123!", confirmPassword: "Player123!", donationTier: 3, role: "admin" }).expect(201);
   const id = registered.body.data.user.id;
   assert.equal(registered.body.data.user.donationTier, 0);
   assert.equal(registered.body.data.user.role, "player");

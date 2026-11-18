@@ -7,5 +7,8 @@ export interface User {
 }
 
 declare module "express-session" {
-  interface SessionData { user?: User; }
+  interface SessionData {
+    user?: User;
+    googleOAuth?: { state: string; nonce: string; verifier: string; expiresAt: number };
+  }
 }

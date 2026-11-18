@@ -6,15 +6,23 @@ import { createCharacter, findCharacter } from "../src/repositories/character.re
 import { weaponTypes, specialWeaponTypes } from "../src/models/character.js";
 import type { Weapon } from "../src/generated/prisma/client.js";
 
+function seedPassword(key: "SEED_ADMIN_PASSWORD" | "SEED_PLAYER_PASSWORD") {
+  const password = process.env[key];
+  if (!password || password.length < 12 || password.length > 256 || !password.trim()) {
+    throw new Error(`Set ${key} in the backend .env to a unique password of 12–256 characters`);
+  }
+  return password;
+}
+
 try {
   if (process.env.NODE_ENV === "production") throw new Error("Development seed is disabled in production");
   const user = await prisma.user.upsert({
     where: { username: "admin" }, update: {},
-    create: { id: "test-admin", username: "admin", name: "Admin", role: "admin", passwordHash: await hashPassword("Admin123!") },
+    create: { id: "test-admin", username: "admin", name: "Admin", role: "admin", passwordHash: await hashPassword(seedPassword("SEED_ADMIN_PASSWORD")) },
   });
   await prisma.user.upsert({
     where: { username: "player2" }, update: {},
-    create: { id: "player-two", username: "player2", name: "Player 2", passwordHash: await hashPassword("Player123!") },
+    create: { id: "player-two", username: "player2", name: "Player 2", passwordHash: await hashPassword(seedPassword("SEED_PLAYER_PASSWORD")) },
   });
   // Import the previous file-backed character without overwriting database data.
   let legacy: Record<string, unknown> = {};
@@ -51,7 +59,7 @@ try {
     await tx.character.updateMany({ where: { userId: user.id }, data: { skill2Unlocked: true } });
   });
   console.log("Admin test account: all characters and maps, 100 million gold, and 1 million wishes.");
-  console.log("Development accounts are ready: admin / Admin123! and player2 / Player123!");
+  console.log("Development accounts are ready. Use the passwords configured in the backend .env.");
 } finally {
   await prisma.$disconnect();
 }
