@@ -7,6 +7,7 @@ import { requireAuth } from "../middlewares/require-auth.js";
 import { enemyWiki } from "../models/enemy-wiki.js";
 import { characterWiki } from "../models/character-wiki.js";
 import { pvpRouter } from "./pvp.routes.js";
+import { paymentRouter } from "./payment.routes.js";
 
 export const apiRouter = Router();
 apiRouter.get("/health", healthCheck);
@@ -22,3 +23,4 @@ apiRouter.use("/auth", authRouter);
 apiRouter.use("/character", characterRouter);
 apiRouter.use("/encounters", encounterRouter);
 apiRouter.use("/pvp", pvpRouter);
+apiRouter.use("/payments", paymentRouter);

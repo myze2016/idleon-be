@@ -2,16 +2,15 @@ import "dotenv/config";
 import { randomBytes } from "node:crypto";
 import { readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { PrismaMariaDb } from "@prisma/adapter-mariadb";
-import { PrismaClient } from "../src/generated/prisma/client.js";
+import pg from "pg";
 import { hashPassword } from "../src/utils/password.js";
 
 const url = new URL(process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL!);
 const databaseName = `idleon_test_${randomBytes(8).toString("hex")}`;
-const admin = new PrismaClient({ adapter: new PrismaMariaDb({
-  host: url.hostname, port: Number(url.port || 3306),
-  user: decodeURIComponent(url.username), password: decodeURIComponent(url.password), connectionLimit: 2,
-}) });
+if (!["postgres:", "postgresql:"].includes(url.protocol)) throw new Error("Tests require a PostgreSQL connection");
+const adminUrl = new URL(url);
+adminUrl.pathname = "/postgres";
+const admin = new pg.Client({ connectionString: adminUrl.toString() });
 url.pathname = `/${databaseName}`;
 process.env.DATABASE_URL = url.toString();
 process.env.NODE_ENV = "test";
@@ -24,7 +23,8 @@ function run(args: string[]) {
 
 let created = false;
 try {
-  await admin.$executeRawUnsafe(`CREATE DATABASE \`${databaseName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+  await admin.connect();
+  await admin.query(`CREATE DATABASE "${databaseName}"`);
   created = true;
   run(["node_modules/prisma/build/index.js", "migrate", "deploy"]);
   const { prisma } = await import("../src/lib/prisma.js");
@@ -36,6 +36,6 @@ try {
   console.error(error);
   process.exitCode = 1;
 } finally {
-  if (created && /^idleon_test_[a-f0-9]{16}$/.test(databaseName)) await admin.$executeRawUnsafe(`DROP DATABASE \`${databaseName}\``);
-  await admin.$disconnect();
+  if (created && /^idleon_test_[a-f0-9]{16}$/.test(databaseName)) await admin.query(`DROP DATABASE "${databaseName}" WITH (FORCE)`);
+  await admin.end();
 }

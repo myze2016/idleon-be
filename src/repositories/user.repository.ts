@@ -8,7 +8,7 @@ export function createPlayer(username: string, passwordHash: string) {
 }
 
 export function findUserByUsername(username: string) {
-  return prisma.user.findUnique({ where: { username } });
+  return prisma.user.findFirst({ where: { username: { equals: username, mode: "insensitive" } } });
 }
 
 export function findUserById(id: string) {

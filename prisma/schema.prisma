@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
 }
 
 enum Role {
@@ -40,25 +40,26 @@ model User {
   characters   Character[]
   starterCreated Boolean @default(false) @map("starter_created")
   wishCurrency Int @default(0) @map("wish_currency")
-  gold         Int @default(0) @db.UnsignedInt
-  experience   Int @default(0) @db.UnsignedInt
-  meadowDefeats Int @default(0) @map("meadow_defeats") @db.UnsignedInt
-  meadowBossAt Int? @map("meadow_boss_at") @db.UnsignedInt
-  tourneyDefeats Int @default(0) @map("tourney_defeats") @db.UnsignedInt
-  tourneyBossAt Int? @map("tourney_boss_at") @db.UnsignedInt
+  gold         Int @default(0)
+  experience   Int @default(0)
+  meadowDefeats Int @default(0) @map("meadow_defeats")
+  meadowBossAt Int? @map("meadow_boss_at")
+  tourneyDefeats Int @default(0) @map("tourney_defeats")
+  tourneyBossAt Int? @map("tourney_boss_at")
   tourneySpectator Json? @map("tourney_spectator")
   garnalandUnlocked Boolean @default(false) @map("garnaland_unlocked")
-  deepSeaFloor Int @default(1) @map("deep_sea_floor") @db.UnsignedInt
+  deepSeaFloor Int @default(1) @map("deep_sea_floor")
   deepSeaProgress Json? @map("deep_sea_progress")
-  harborDefeats Int @default(0) @map("harbor_defeats") @db.UnsignedInt
-  harborBossAt Int? @map("harbor_boss_at") @db.UnsignedInt
-  forestDefeats Int @default(0) @map("forest_defeats") @db.UnsignedInt
-  forestBossAt Int? @map("forest_boss_at") @db.UnsignedInt
+  harborDefeats Int @default(0) @map("harbor_defeats")
+  harborBossAt Int? @map("harbor_boss_at")
+  forestDefeats Int @default(0) @map("forest_defeats")
+  forestBossAt Int? @map("forest_boss_at")
   expeditionVitals Json? @map("expedition_vitals")
   teamSlots Json? @map("team_slots")
   encounters   Encounter[]
   artifacts    Artifact[]
   questItems   QuestItem[]
+  wishPayments WishPayment[]
   pvpHosted PvpRoom[] @relation("PvpHost")
   pvpJoined PvpRoom[] @relation("PvpGuest")
   createdAt    DateTime   @default(now()) @map("created_at")
@@ -111,7 +112,7 @@ model Character {
   weapon    Weapon
   isStarter Boolean @default(false) @map("is_starter")
   skill2Unlocked Boolean @default(false) @map("skill_2_unlocked")
-  upgradeLevel Int @default(0) @map("upgrade_level") @db.UnsignedInt
+  upgradeLevel Int @default(0) @map("upgrade_level")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   artifact Artifact?
@@ -121,7 +122,7 @@ model Character {
 }
 
 model Artifact {
-  enhancementLevel Int @default(0) @map("enhancement_level") @db.UnsignedInt
+  enhancementLevel Int @default(0) @map("enhancement_level")
   id String @id @default(cuid()) @db.VarChar(30)
   userId String @map("user_id") @db.VarChar(30)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -136,11 +137,34 @@ model Artifact {
 
 model Session {
   id        String   @id @db.VarChar(128)
-  data      String   @db.LongText
+  data      String   @db.Text
   expiresAt DateTime @map("expires_at")
 
   @@index([expiresAt])
   @@map("sessions")
+}
+
+model WishPayment {
+  id String @id @default(cuid()) @db.VarChar(30)
+  userId String @map("user_id") @db.VarChar(30)
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  requestKey String @unique @map("request_key") @db.VarChar(36)
+  intentId String? @unique @map("intent_id") @db.VarChar(80)
+  paymentId String? @unique @map("payment_id") @db.VarChar(80)
+  eventId String? @unique @map("event_id") @db.VarChar(80)
+  amount Int @default(1000)
+  currency String @default("PHP") @db.VarChar(3)
+  wishes Int @default(100)
+  livemode Boolean
+  status String @default("creating") @db.VarChar(16)
+  qrImage String? @map("qr_image") @db.Text
+  expiresAt DateTime @map("expires_at")
+  creditedAt DateTime? @map("credited_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId, createdAt])
+  @@map("wish_payments")
 }
 
 model Encounter {

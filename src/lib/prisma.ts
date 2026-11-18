@@ -1,17 +1,12 @@
-import { PrismaMariaDb } from "@prisma/adapter-mariadb";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../generated/prisma/client.js";
 import { env } from "../config/env.js";
 
 export function databaseOptions(connectionString: string) {
-  const url = new URL(connectionString);
   return {
-    host: url.hostname,
-    port: Number(url.port || 3306),
-    user: decodeURIComponent(url.username),
-    password: decodeURIComponent(url.password),
-    database: decodeURIComponent(url.pathname.slice(1)),
-    connectionLimit: 5,
+    connectionString,
+    max: 5,
   };
 }
 
-export const prisma = new PrismaClient({ adapter: new PrismaMariaDb(databaseOptions(env.databaseUrl)) });
+export const prisma = new PrismaClient({ adapter: new PrismaPg(databaseOptions(env.databaseUrl)) });

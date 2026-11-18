@@ -19,8 +19,8 @@ if (!["http:", "https:"].includes(origin.protocol) || origin.origin !== corsOrig
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
 const database = new URL(databaseUrl);
-if (database.protocol !== "mysql:" || database.pathname.length < 2) {
-  throw new Error("DATABASE_URL must be a MySQL URL with a database name");
+if (!["postgresql:", "postgres:"].includes(database.protocol) || database.pathname.length < 2) {
+  throw new Error("DATABASE_URL must be a PostgreSQL URL with a database name");
 }
 if (nodeEnv === "production" && !process.env.SESSION_SECRET) throw new Error("SESSION_SECRET is required in production");
 

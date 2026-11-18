@@ -5,10 +5,7 @@
 The `admin` test account receives all 14 character types (including Kent, Juan,
 and Jeffrey), second skills, Garnaland, all three DeepSea floors, the Deepsea Moth
 Map, Zugwangs Evidence, at least 100,000,000 gold, and 1,000,000 wish currency.
-Migration `20261117010000_admin_test_account` upgrades only the existing account
-with username `admin` and role `admin`, without changing its password or team.
-Run `npm run db:deploy` for an existing database. On a fresh database, run
-`npm run db:seed` afterward to create and provision the development admin.
+Run `npm run db:seed` to create and provision the development admin, or replenish an existing admin without changing its password or team. Run `npm run db:deploy` first for a fresh database.
 Seeding again replenishes minimum test currencies without duplicating characters
 or resetting existing upgrades. Other accounts receive no test grants.
 
@@ -25,13 +22,13 @@ creates a player account, and signs it in using a fresh session. Usernames use
 Passwords require 8–256 characters and are stored using salted scrypt hashes.
 Registration is limited to 10 attempts per IP per 15 minutes. New accounts choose
 a starter in `/game`; starter creation grants the normal 100 wish currency once.
-Sessions use HTTP-only cookies, expire after eight hours, and are stored in MariaDB.
+Sessions use HTTP-only cookies, expire after eight hours, and are stored in PostgreSQL.
 Keep `SESSION_SECRET` stable in `.env` so sessions survive backend restarts. Use a
 long random value, configure HTTPS for production, and change the development
 account password before deploying. Apply `requireAuth` to future private routes.
 
-Express 5 with TypeScript, Prisma 7, and MySQL/MariaDB. Requires Node.js 22.12+.
-Start MySQL in XAMPP and create `idleon-db` before running migrations.
+Express 5 with TypeScript, Prisma 7, and PostgreSQL. Requires Node.js 22.12+.
+Start PostgreSQL and create `idleon-pgsql` before running migrations. The local server uses port 5432 and the postgres role.
 
 ```powershell
 Copy-Item .env.example .env
@@ -95,7 +92,7 @@ For an address outside the private IPv4 ranges, set `CORS_ORIGIN` in `.env` to
 the exact frontend origin (for example `http://172.50.254.22:3020`) and add its
 hostname to the frontend's `allowedDevOrigins`. Restart both servers afterward.
 
-Rooms and results persist in MariaDB, expire after 30 minutes, and are polled by
+Rooms and results persist in PostgreSQL, expire after 30 minutes, and are polled by
 both clients. The server owns character validation, the countdown, and the combat
 result; clients play the same saved event timeline.
 
@@ -235,9 +232,11 @@ special defense (minimum 1), costs mana, and has a one-second cooldown; monsters
 resume basic attacks when they cannot afford it. Apply `npm run db:deploy`
 and regenerate Prisma with `npm run db:generate` after updating.
 
-`prisma/schema.prisma` defines the schema; migrations are in `prisma/migrations/`.
-The local `.env` uses `mysql://root:@127.0.0.1:3306/idleon-db` for XAMPP. Change
-the connection string if your database credentials differ. Keep it on the backend.
+`prisma/schema.prisma` defines the PostgreSQL schema; active migrations are in `prisma/migrations-postgresql/`. The historical MySQL SQL in `prisma/migrations/` is retained for reference and is never run against PostgreSQL.
+
+Set `DATABASE_URL="postgresql://postgres:YOUR_PASSWORD@127.0.0.1:5432/idleon-pgsql"` in the backend `.env`. Keep credentials backend-only.
+
+For a provider conversion, `scripts/export-database.ts` saves a private snapshot using the source adapter to gitignored `data/database-transfer.json`. After switching providers and deploying the destination schema, `scripts/import-database.ts` copies it in one transaction and refuses a nonempty destination. The original MySQL database remains unchanged. Snapshots include password hashes and sessions; keep them private.
 
 | Table | Purpose |
 | --- | --- |
@@ -252,7 +251,7 @@ Each user can own multiple characters. The foreign key cascades on user deletion
 The free starter is created once per signed-in account using `GET /api/character` and
 `POST /api/character` (`name`, `weapon`). Names must be 2–24 characters. The API
 validates weapon choices and rejects duplicate creation. Characters are stored
-in MariaDB. The development seed imports an existing admin character from
+in PostgreSQL. The development seed imports an existing admin character from
 `data/characters.json` if present, without overwriting a saved database character.
 The legacy file is preserved and is no longer used by API requests.
 
@@ -368,6 +367,9 @@ Bosses grant no direct wish currency. Their EXP can still trigger the normal
 - `npm run db:migrate -- --name your_change`: create/apply a development migration.
 - `npm run db:deploy`: apply committed migrations without resetting data.
 - `npm run db:seed`: create the development admin and import its legacy character.
+- `npm run db:export`: save a private snapshot to gitignored `data/database-transfer.json` (refuses to overwrite an existing snapshot).
+- `npm run db:import`: import that snapshot into an empty destination database in one transaction.
+- `npm run db:verify-transfer`: compare every destination record against the saved snapshot before resuming play.
 - `npm run db:studio`: inspect database records.
 - `npm run build`: compile to `dist/`.
 - `npm start`: run the compiled API (build first).
