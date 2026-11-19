@@ -100,19 +100,20 @@ export async function readyPvp(userId: string, code: string, ready: boolean) {
     return { code };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
 }
-export async function pvpState(userId: string, code: string) {
+export async function pvpState(userId: string, code: string, knownBattle?: string) {
   const room = await prisma.pvpRoom.findUnique({ where: { code }, include: { host: { select: { id: true, ...playerNameSelect } }, guest: { select: { id: true, ...playerNameSelect } } } });
   if (!room) throw new HttpError(404, "PvP room not found");
   if (room.hostId !== userId && room.guestId !== userId) throw new HttpError(403, "You are not in this PvP room");
   const phase = pvpPhase(room), result = room.result as unknown as DuelResult | null;
+  const resultUnchanged = !!result && !!knownBattle && knownBattle === room.startsAt?.toISOString() && ["battle", "complete"].includes(phase);
   return { code, phase, serverNow: new Date().toISOString(), startsAt: room.startsAt?.toISOString() ?? null,
     players: [room.host, room.guest].map((user, side) => user ? { id: user.id, ...playerIdentity(user), ready: side === 0 ? room.hostReady : room.guestReady,
       selected: selection(room, side === 0).length > 0, selectedCount: selection(room, side === 0).length,
       characterIds: user.id === userId ? selection(room, side === 0) : [],
       characterId: user.id === userId ? (side === 0 ? room.hostCharacterId : room.guestCharacterId) : null,
-      fighters: room.startsAt ? result?.fighters.filter((fighter) => fighter.userId === user.id) ?? [] : [],
-      fighter: room.startsAt ? result?.fighters.find((fighter) => fighter.userId === user.id) ?? null : null } : null),
-    result: phase === "battle" || phase === "complete" ? result : null };
+      fighters: room.startsAt && !resultUnchanged ? result?.fighters.filter((fighter) => fighter.userId === user.id) ?? [] : [],
+      fighter: room.startsAt && !resultUnchanged ? result?.fighters.find((fighter) => fighter.userId === user.id) ?? null : null } : null),
+    resultUnchanged, result: !resultUnchanged && (phase === "battle" || phase === "complete") ? result : null };
 }
 export async function leavePvp(userId: string, code: string) {
   return prisma.$transaction(async (tx) => {

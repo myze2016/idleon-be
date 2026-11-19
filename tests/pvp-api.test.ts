@@ -64,6 +64,12 @@ test("Two accounts select a 6v1 team, ready up once, share countdown, and preser
   const resultA = (await a.get(path).expect(200)).body.data, resultB = (await b.get(path).expect(200)).body.data;
   assert.equal(resultA.phase, "complete"); assert.deepEqual(resultA.result, resultB.result);
   assert.equal(resultA.result.fighters.length, 7);
+  const compact = (await a.get(path).query({ battle: resultA.startsAt }).expect(200)).body.data;
+  assert.equal(compact.resultUnchanged, true); assert.equal(compact.result, null);
+  assert.deepEqual(compact.players[0].fighters, []);
+  assert.ok(JSON.stringify(compact).length < JSON.stringify(resultA).length);
+  assert.deepEqual((await a.get(path).query({ battle: "old-match" }).expect(200)).body.data.result, resultA.result);
+  await c.get(path).query({ battle: resultA.startsAt }).expect(403);
   assert.ok(resultA.result.steps.every((step: { hp: number[]; mp: number[] }) => step.hp.length === 7 && step.mp.length === 7));
   for (const id of ["pvp-a", "pvp-b"]) {
     const user = await prisma.user.findUniqueOrThrow({ where: { id } });
@@ -74,6 +80,7 @@ test("Two accounts select a 6v1 team, ready up once, share countdown, and preser
   const returned = (await a.get(path).expect(200)).body.data;
   assert.equal(returned.code, code); assert.equal(returned.phase, "waiting");
   assert.equal(returned.startsAt, null); assert.equal(returned.result, null);
+  assert.equal((await a.get(path).query({ battle: resultA.startsAt }).expect(200)).body.data.resultUnchanged, false);
   assert.deepEqual(returned.players.map((player: { ready: boolean }) => player.ready), [false, false]);
   assert.deepEqual(returned.players.map((player: { id: string }) => player.id), ["pvp-a", "pvp-b"]);
   assert.deepEqual(returned.players[0].characterIds, teamA);

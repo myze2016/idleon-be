@@ -52,10 +52,13 @@ async function member(tx: Prisma.TransactionClient, userId: string, roomId: numb
   return present;
 }
 export async function gatheringPresence(userId: string, roomId: number, token: string, x: number, y: number) {
-  await prisma.$transaction(async tx => {
-    await member(tx, userId, roomId, token);
-    await tx.gatheringMember.update({ where: { userId }, data: { x, y, lastSeen: new Date() } });
-  }, { isolationLevel });
+  // Fence the lease in a single atomic write. Movement must not queue behind
+  // every other player on the shared room lock used for joins and invitations.
+  const updated = await prisma.gatheringMember.updateMany({
+    where: { userId, roomId, token, lastSeen: { gte: cutoff() } },
+    data: { x, y, lastSeen: new Date() },
+  });
+  if (!updated.count) throw new HttpError(409, "Your gathering session ended or was opened in another tab. Join again.");
   const [room, players, messages, challenges] = await Promise.all([
     prisma.gatheringRoom.findUniqueOrThrow({ where: { id: roomId } }),
     prisma.gatheringMember.findMany({ where: { roomId, lastSeen: { gte: cutoff() } }, include: { user: { select: playerNameSelect } } }),

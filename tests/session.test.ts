@@ -17,6 +17,9 @@ test("session data survives a new store instance, expires, and can be destroyed"
   data.cookie.expires = later;
   await new Promise<void>((resolve, reject) => reopened.touch("durable-session", data, (error) => error ? reject(error) : resolve()));
   assert.equal((await prisma.session.findUniqueOrThrow({ where: { id: "durable-session" } })).expiresAt.getTime(), later.getTime());
+  data.cookie.expires = new Date(later.getTime() + 1000);
+  await new Promise<void>((resolve, reject) => reopened.touch("durable-session", data, error => error ? reject(error) : resolve()));
+  assert.equal((await prisma.session.findUniqueOrThrow({ where: { id: "durable-session" } })).expiresAt.getTime(), later.getTime());
   await prisma.session.update({ where: { id: "durable-session" }, data: { expiresAt: new Date(0) } });
   const expired = await new Promise((resolve, reject) => reopened.get("durable-session", (error, value) => error ? reject(error) : resolve(value)));
   assert.equal(expired, null);

@@ -55,7 +55,11 @@ test("Endless admin controls, verified distance and continuous spawns, snapshots
     await prisma.character.update({ where: { id: first.id }, data: { upgradeLevel: 21 } });
     const next = (await post(one, `${run.id}/wave`).expect(200)).body.data;
     assert.equal(next.season, season); assert.equal(next.pending.enemyType, "slime");
-    assert.equal(next.pending.result.fighters.find((fighter: { id: string }) => fighter.id === "endless-2-0").stats.hp, Math.ceil(40 * 1.2 ** 1.2));
+    const incoming = next.pending.result.fighters.find((fighter: { id: string }) => fighter.id === "endless-2-0");
+    assert.equal(incoming.stats.hp, Math.ceil(40 * 1.2 ** ((120 + incoming.spawnAt * 10) / 100)));
+    const lastSpawn = Math.max(...wave.pending.result.fighters.filter((fighter: { enemyType?: string }) => fighter.enemyType).map((fighter: { spawnAt: number }) => fighter.spawnAt));
+    const gap = 12 + incoming.spawnAt - lastSpawn;
+    assert.ok(gap >= 2 - 1e-8 && gap <= 3 + 1e-8);
     assert.equal(next.pending.result.fighters[0].stats.hp, 300);
     assert.equal(next.pending.result.fighters[0].hp, after.team[0].hp);
     await finish(run.id);

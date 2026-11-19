@@ -18,7 +18,10 @@ pvpRouter.param("code", (req, _res, next, code: string) => {
   if (!/^[A-F0-9]{10}$/.test(code)) return next(new HttpError(400, "Enter a valid room code"));
   next();
 });
-pvpRouter.get("/:code", async (req, res) => { res.json({ data: await pvpState(req.session.user!.id, String(req.params.code)) }); });
+pvpRouter.get("/:code", async (req, res) => {
+  const knownBattle = typeof req.query.battle === "string" && req.query.battle.length <= 40 ? req.query.battle : undefined;
+  res.json({ data: await pvpState(req.session.user!.id, String(req.params.code), knownBattle) });
+});
 pvpRouter.post("/:code/join", async (req, res) => { res.json({ data: await joinPvp(req.session.user!.id, String(req.params.code)) }); });
 pvpRouter.post("/:code/select", async (req, res) => {
   const ids = req.body?.characterIds ?? (typeof req.body?.characterId === "string" ? [req.body.characterId] : null);

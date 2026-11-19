@@ -27,6 +27,23 @@ test("gathering capacity is atomic, stale members release slots, and newer tabs 
     await leaveGathering(ids[admittedIndex], room.id, first.value.token);
     assert.ok(await prisma.gatheringMember.findUnique({ where: { userId: ids[admittedIndex] } }));
     await assert.rejects(gatheringPresence(ids[admittedIndex], room.id, first.value.token, .5, .7), /session ended/);
+    // A room operation must not make every player's movement wait in a queue.
+    let release!: () => void, acquired!: () => void;
+    const hold = new Promise<void>(resolve => { release = resolve; });
+    const locked = new Promise<void>(resolve => { acquired = resolve; });
+    const roomOperation = prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM gathering_rooms WHERE id = ${room.id} FOR UPDATE`;
+      acquired(); await hold;
+    }, { timeout: 10000 });
+    await locked;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const movement = await Promise.race([
+        gatheringPresence(ids[admittedIndex], room.id, next.token, .6, .75),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Movement queued behind the room lock")), 3000); }),
+      ]);
+      assert.equal(movement.players.find(player => player.id === ids[admittedIndex])?.x, .6);
+    } finally { clearTimeout(timer); release(); await roomOperation; }
     await prisma.gatheringMember.update({ where: { userId: ids[admittedIndex] }, data: { lastSeen: new Date(Date.now() - PRESENCE_TTL - 1000) } });
     await joinGathering(ids[rejectedIndex], room.id);
     assert.equal(await prisma.gatheringMember.count({ where: { roomId: room.id } }), 12);
