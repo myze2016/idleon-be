@@ -5,12 +5,17 @@ import { skills, savesManaForSkill2, type SkillDefinition } from "../models/skil
 import { actionDuration, spellCastTime } from "../models/action-timing.js";
 import { enemies as enemyCatalog, type EnemyStats, type EnemyType } from "../models/enemy.js";
 
-export interface DuelFighter extends Fighter { userId: string; name: string; startX?: number; enemyType?: EnemyType; enemy?: EnemyStats; spawnAt?: number }
+export interface DuelFighter extends Fighter { userId: string; name: string; startX?: number; enemyType?: EnemyType; enemy?: EnemyStats; spawnAt?: number; combat?: CombatContinuation }
+interface CombatContinuation {
+  next: number; ready: number[]; stun: number; enemyReady: number; guardUntil: number; shieldUntil: number;
+  buffs: Buff[]; cast: { skill: SkillDefinition; slot: number; ends: number } | null;
+  poison: { until: number; next: number; sourceId: string } | null; bleed: number; bleedNext: number; bleedSourceId?: string;
+}
 export interface DuelStep {
   at: number; side: number; actor: number; targets: number[]; kind: string; label: string;
   damage: number; healing: number; critical: boolean; hp: number[]; mp: number[]; x: number[];
 }
-export interface DuelResult { fighters: DuelFighter[]; steps: DuelStep[]; duration: number; winnerId: string | null }
+export interface DuelResult { fighters: DuelFighter[]; steps: DuelStep[]; duration: number; winnerId: string | null; continuation?: DuelFighter[] }
 type Buff = { kind: "attack" | "speed" | "hero" | "burst"; amount: number; until: number };
 export const PVP_MELEE_RANGE = 70;
 export const PVP_RANGED_RANGE = 600;
@@ -19,25 +24,36 @@ const MOVE_TICK = 0.1;
 const rangedSkills = new Set(["shackle", "fireball", "inferno", "throw-spear", "long-shot", "bouncing-glaive", "freeze", "freeze-all"]);
 
 /** Ordered fighters: host formation followed by guest formation, front slots first. */
-export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_000_000) / 1_000_000): DuelResult {
+export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_000_000) / 1_000_000, continuousSeconds?: number): DuelResult {
   fighters = fighters.map(fighter => ({ ...fighter }));
   const owners = [...new Set(fighters.map((fighter) => fighter.userId))];
-  if (owners.length !== 2 || owners.some((id) => fighters.filter((fighter) => fighter.userId === id).length > 6)) throw new Error("PvP requires two teams of one to six characters");
+  if (owners.length !== 2 || (!continuousSeconds && owners.some((id) => fighters.filter((fighter) => fighter.userId === id).length > 6))) throw new Error("PvP requires two teams of one to six characters");
   const units = fighters.map((fighter, index) => {
     const team = owners.indexOf(fighter.userId);
     const count = fighters.filter((other) => other.userId === fighter.userId).length;
     const slot = fighters.slice(0, index).filter((other) => other.userId === fighter.userId).length;
-    return { fighter, team, x: team === 0 ? 60 + (count - 1 - slot) * 64 : 1140 - (count - 1 - slot) * 64, hp: fighter.stats.hp, mp: fighter.stats.mp,
-    next: actionDuration(fighter.stats.speed), ready: [0, 0], stun: 0, enemyReady: 0, guardUntil: 0, shieldUntil: 0, buffs: [] as Buff[],
+    return { fighter, team, x: fighter.startX ?? (team === 0 ? 60 + (count - 1 - slot) * 64 : 1140 - (count - 1 - slot) * 64), hp: Math.max(0, Math.min(fighter.stats.hp, fighter.hp ?? fighter.stats.hp)), mp: Math.max(0, Math.min(fighter.stats.mp, fighter.mp ?? fighter.stats.mp)),
+    next: (fighter.spawnAt ?? 0) + actionDuration(fighter.stats.speed), ready: [0, 0], stun: 0, enemyReady: 0, guardUntil: 0, shieldUntil: 0, buffs: [] as Buff[],
     cast: null as { skill: SkillDefinition; slot: number; ends: number } | null,
     poison: null as { until: number; next: number; source: number } | null,
     bleed: 0, bleedNext: Infinity, bleedSource: 0 };
+  });
+  if (continuousSeconds) units.forEach(unit => {
+    const saved = unit.fighter.combat;
+    if (!saved) return;
+    Object.assign(unit, saved, {
+      ready: [...saved.ready],
+      buffs: saved.buffs.map(buff => ({ ...buff })), cast: saved.cast ? { ...saved.cast } : null,
+      poison: saved.poison ? { until: saved.poison.until, next: saved.poison.next, source: Math.max(0, fighters.findIndex(fighter => fighter.id === saved.poison!.sourceId)) } : null,
+      bleedSource: Math.max(0, fighters.findIndex(fighter => fighter.id === saved.bleedSourceId)),
+      bleedNext: saved.bleed ? saved.bleedNext : Infinity,
+    });
   });
   const initialPositions = units.map((unit) => unit.x);
   const steps: DuelStep[] = [];
   let at = 0, manaAt = 1, moveAt = MOVE_TICK;
   const first = roll() < 0.5 ? 0 : 1;
-  const alive = (team: number) => units.flatMap((unit, index) => unit.team === team && unit.hp > 0 ? [index] : []);
+  const alive = (team: number) => units.flatMap((unit, index) => unit.team === team && unit.hp > 0 && (unit.fighter.spawnAt ?? 0) <= at + 1e-8 ? [index] : []);
   const enemies = (index: number) => alive(1 - units[index].team).sort((a, b) => Math.abs(units[a].x - units[index].x) - Math.abs(units[b].x - units[index].x) || a - b);
   const allies = (index: number) => alive(units[index].team);
   const basicRange = (index: number) => fighters[index].stats.range === "range" ? PVP_RANGED_RANGE : PVP_MELEE_RANGE;
@@ -195,9 +211,9 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
     }
     return false;
   }
-  for (let event = 0; event < 50000 && alive(0).length && alive(1).length; event++) {
+  for (let event = 0; event < 50000 && alive(0).length && (continuousSeconds || alive(1).length); event++) {
     const events = [{ at: manaAt, type: "mana", index: 0, priority: -4 }, { at: moveAt, type: "move", index: 0, priority: -1 },
-      ...units.flatMap((unit, index) => unit.hp <= 0 ? [] : [
+      ...units.flatMap((unit, index) => unit.hp <= 0 ? [] : (unit.fighter.spawnAt ?? 0) > at + 1e-8 ? [{ at: unit.fighter.spawnAt!, type: "spawn", index, priority: -5 }] : [
         { at: Math.max(unit.cast?.ends ?? unit.next, unit.stun), type: "unit", index, priority: unit.team === first ? 0 : 1 },
         ...(unit.poison && unit.poison.next <= unit.poison.until + 1e-8 ? [{ at: unit.poison.next, type: "poison", index, priority: -3 }] : []),
         ...(unit.bleed ? [{ at: unit.bleedNext, type: "bleed", index, priority: -3 }] : []),
@@ -205,14 +221,15 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
       ]),
     ].sort((a, b) => a.at - b.at || a.priority - b.priority);
     const next = events[0];
-    if (next.at > 180) { at = 180; break; }
+    if (next.at > (continuousSeconds ?? 180)) { at = continuousSeconds ?? 180; break; }
     at = next.at;
+    if (next.type === "spawn") { emit(next.index, "spawn", "Enemy approaches"); continue; }
     if (next.type === "move") {
       moveAt += MOVE_TICK;
       let moved = false;
       // Apply both teams' travel from the same frame so the host gets no movement head start.
       const destinations = units.map((unit, index) => {
-        if (unit.hp <= 0 || unit.cast || unit.stun > at + 1e-8) return unit.x;
+        if (unit.hp <= 0 || (unit.fighter.spawnAt ?? 0) > at + 1e-8 || unit.cast || unit.stun > at + 1e-8) return unit.x;
         const target = enemies(index)[0];
         if (target === undefined) return unit.x;
         let reach = basicRange(index);
@@ -272,5 +289,16 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
     }
   }
   const winner = alive(0).length && !alive(1).length ? 0 : alive(1).length && !alive(0).length ? 1 : -1;
-  return { fighters: fighters.map((fighter, index) => ({ ...fighter, startX: initialPositions[index] })), steps, duration: at, winnerId: winner < 0 ? null : owners[winner] };
+  if (continuousSeconds) emit(0, "move", "Travelling");
+  const continuation = continuousSeconds ? units.filter(unit => (unit.team === 0 || unit.hp > 0) && (unit.fighter.spawnAt ?? 0) <= at + 1e-8).map(unit => ({
+    ...unit.fighter, spawnAt: 0, startX: unit.x, hp: unit.hp, mp: unit.mp,
+    combat: { next: Math.max(0, unit.next - at), ready: unit.ready.map(value => Math.max(0, value - at)), stun: Math.max(0, unit.stun - at),
+      enemyReady: Math.max(0, unit.enemyReady - at), guardUntil: Math.max(0, unit.guardUntil - at), shieldUntil: Math.max(0, unit.shieldUntil - at),
+      buffs: unit.buffs.filter(buff => buff.until > at).map(buff => ({ ...buff, until: buff.until - at })),
+      cast: unit.cast ? { ...unit.cast, ends: Math.max(0, unit.cast.ends - at) } : null,
+      poison: unit.poison ? { until: unit.poison.until - at, next: unit.poison.next - at, sourceId: fighters[unit.poison.source].id } : null,
+      bleed: unit.bleed, bleedNext: unit.bleed ? Math.max(0, unit.bleedNext - at) : 0, bleedSourceId: fighters[unit.bleedSource]?.id,
+    },
+  })) : undefined;
+  return { fighters: fighters.map((fighter, index) => ({ ...fighter, startX: initialPositions[index] })), steps, duration: at, winnerId: winner < 0 ? null : owners[winner], ...(continuation ? { continuation } : {}) };
 }

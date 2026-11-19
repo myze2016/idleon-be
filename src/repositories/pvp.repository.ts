@@ -1,3 +1,4 @@
+import { playerIdentity, playerNameSelect } from "../models/player-name.js";
 import { randomBytes } from "node:crypto";
 import { prisma } from "../lib/prisma.js";
 import { Prisma, type PvpRoom } from "../generated/prisma/client.js";
@@ -18,6 +19,12 @@ export function pvpPhase(room: Pick<PvpRoom, "status" | "startsAt" | "result" | 
 async function activeRoom(tx: Prisma.TransactionClient, userId: string) {
   const rooms = await tx.pvpRoom.findMany({ where: { OR: [{ hostId: userId }, { guestId: userId }], status: { in: ["waiting", "started"] }, expiresAt: { gt: new Date() } }, orderBy: { createdAt: "desc" } });
   return rooms.find((room) => ["waiting", "countdown", "battle"].includes(pvpPhase(room)));
+}
+/** A gathering invitation has already been accepted by both accounts. */
+export async function createGatheringDuel(tx: Prisma.TransactionClient, hostId: string, guestId: string) {
+  for (const id of [hostId, guestId].sort()) await tx.$queryRaw`SELECT id FROM users WHERE id = ${id} FOR UPDATE`;
+  if (await activeRoom(tx, hostId) || await activeRoom(tx, guestId)) throw new HttpError(409, "One player is already in a PvP room. Finish or leave it first.");
+  return tx.pvpRoom.create({ data: { hostId, guestId, code: randomBytes(5).toString("hex").toUpperCase(), expiresAt: new Date(Date.now() + 30 * 60_000) } });
 }
 async function lockRoom(tx: Prisma.TransactionClient, code: string, userId?: string) {
   await tx.$queryRaw`SELECT id FROM pvp_rooms WHERE code = ${code} FOR UPDATE`;
@@ -44,10 +51,10 @@ async function snapshotTeam(tx: Prisma.TransactionClient, userId: string, ids: s
 export async function listPvp(userId: string) {
   const now = new Date();
   const [rooms, mine] = await Promise.all([
-    prisma.pvpRoom.findMany({ where: { status: "waiting", guestId: null, expiresAt: { gt: now } }, include: { host: { select: { name: true, username: true } } }, orderBy: { createdAt: "desc" }, take: 30 }),
+    prisma.pvpRoom.findMany({ where: { status: "waiting", guestId: null, expiresAt: { gt: now } }, include: { host: { select: playerNameSelect } }, orderBy: { createdAt: "desc" }, take: 30 }),
     prisma.pvpRoom.findFirst({ where: { OR: [{ hostId: userId }, { guestId: userId }], status: { in: ["waiting", "started"] }, expiresAt: { gt: now } }, orderBy: { createdAt: "desc" } }),
   ]);
-  return { rooms: rooms.map((room) => ({ code: room.code, hostName: room.host.name, hostUsername: room.host.username, isMine: room.hostId === userId })), activeCode: mine?.code ?? null };
+  return { rooms: rooms.map((room) => ({ code: room.code, hostName: playerIdentity(room.host).name, hostUsername: playerIdentity(room.host).username, isMine: room.hostId === userId })), activeCode: mine?.code ?? null };
 }
 export async function createPvp(userId: string) {
   return prisma.$transaction(async (tx) => {
@@ -94,12 +101,12 @@ export async function readyPvp(userId: string, code: string, ready: boolean) {
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
 }
 export async function pvpState(userId: string, code: string) {
-  const room = await prisma.pvpRoom.findUnique({ where: { code }, include: { host: { select: { id: true, name: true, username: true } }, guest: { select: { id: true, name: true, username: true } } } });
+  const room = await prisma.pvpRoom.findUnique({ where: { code }, include: { host: { select: { id: true, ...playerNameSelect } }, guest: { select: { id: true, ...playerNameSelect } } } });
   if (!room) throw new HttpError(404, "PvP room not found");
   if (room.hostId !== userId && room.guestId !== userId) throw new HttpError(403, "You are not in this PvP room");
   const phase = pvpPhase(room), result = room.result as unknown as DuelResult | null;
   return { code, phase, serverNow: new Date().toISOString(), startsAt: room.startsAt?.toISOString() ?? null,
-    players: [room.host, room.guest].map((user, side) => user ? { ...user, ready: side === 0 ? room.hostReady : room.guestReady,
+    players: [room.host, room.guest].map((user, side) => user ? { id: user.id, ...playerIdentity(user), ready: side === 0 ? room.hostReady : room.guestReady,
       selected: selection(room, side === 0).length > 0, selectedCount: selection(room, side === 0).length,
       characterIds: user.id === userId ? selection(room, side === 0) : [],
       characterId: user.id === userId ? (side === 0 ? room.hostCharacterId : room.guestCharacterId) : null,
@@ -141,8 +148,8 @@ export async function sendPvpChat(userId: string, code: string, body: string) {
   return prisma.$transaction(async (tx) => {
     const room = await lockRoom(tx, code, userId);
     if (!["waiting", "started"].includes(room.status)) throw new HttpError(409, "This PvP room has ended");
-    const user = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true } });
-    const message: ChatMessage = { id: randomBytes(12).toString("hex"), userId, name: user.name, body, createdAt: new Date().toISOString() };
+    const user = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: playerNameSelect });
+    const message: ChatMessage = { id: randomBytes(12).toString("hex"), userId, name: playerIdentity(user).name, body, createdAt: new Date().toISOString() };
     const messages = [...((room.messages as unknown as ChatMessage[] | null) ?? []), message].slice(-100);
     await tx.pvpRoom.update({ where: { id: room.id }, data: { messages: messages as unknown as Prisma.InputJsonValue } });
     return { messages };

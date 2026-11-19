@@ -6,6 +6,8 @@ import { isAllowedOrigin } from "../config/origin.js";
 import { HttpError } from "../utils/http-error.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { balanceRouter } from "./balance.routes.js";
+import { economyRouter } from "./economy.routes.js";
+import { endlessAdminRouter } from "./endless.routes.js";
 import { wishGrantsRouter } from "./wish-grants.routes.js";
 import { accountGrantsRouter } from "./account-grants.routes.js";
 import { accountProgress } from "../models/account-progress.js";
@@ -23,6 +25,8 @@ adminRouter.use(async (req, res, next) => {
 adminRouter.use(rateLimit({ windowMs: 60000, limit: 30, keyGenerator: (req) => req.session.user!.id,
   standardHeaders: "draft-8", legacyHeaders: false, message: { error: { message: "Too many admin requests. Try again shortly." } } }));
 adminRouter.use("/balance", balanceRouter);
+adminRouter.use("/economy", economyRouter);
+adminRouter.use("/endless", endlessAdminRouter);
 adminRouter.use("/wish-currency", wishGrantsRouter);
 adminRouter.use("/account-grants", accountGrantsRouter);
 adminRouter.get("/donation-tiers", async (req, res) => {
@@ -30,7 +34,7 @@ adminRouter.get("/donation-tiers", async (req, res) => {
   const search = String(req.query.search ?? "").trim();
   const users = await prisma.user.findMany({ where: search ? { OR: [{ id: search }, { name: { contains: search, mode: "insensitive" } }, { username: { contains: search, mode: "insensitive" } }, { characters: { some: { name: { contains: search, mode: "insensitive" } } } }] } : {},
     take: 20, orderBy: { username: "asc" }, select: { id: true, username: true, name: true, donationTier: true, wishCurrency: true, gold: true, experience: true, characters: { select: { id: true, name: true }, orderBy: { name: "asc" } } } });
-  res.json({ data: { users: users.map(user => ({ ...user, level: accountProgress(user.experience).level })) } });
+  res.json({ data: { maxLevel: accountProgress(2147483647).level, users: users.map(user => ({ ...user, level: accountProgress(user.experience).level })) } });
 });
 adminRouter.patch("/users/:id/donation-tier", async (req, res) => {
   const tier = req.body?.tier;

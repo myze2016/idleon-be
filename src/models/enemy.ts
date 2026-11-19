@@ -67,6 +67,17 @@ export const enemyPools = {
   harbor: ["crab-day", "hermit", "starfish"],
 } satisfies Record<string, EnemyType[]>;
 export type Location = keyof typeof enemyPools;
+const locationExtras: Partial<Record<Location, EnemyType[]>> = {
+  meadow: ["mutant-boar"], forest: ["coco-klan-chief"],
+  garnaland: ["mushroom-chicken", "mushroom-king"],
+  harbor: ["crab-night", "fishpeople-spearman", "fishpeople-hunter", "fishpeople-magos", "fishpeople-guide"],
+  tourney: ["zugwang", "demon-prince"],
+  deepsea: ["fishpeople-guardian"], "deepsea-2f": ["fishpeople-researcher"], "deepsea-palace": ["fishpeople-lord"],
+};
+export function enemyLocations(type: EnemyType): Location[] {
+  return (Object.keys(enemyPools) as Location[]).filter(location =>
+    (enemyPools[location] as EnemyType[]).includes(type) || locationExtras[location]?.includes(type));
+}
 export function enemyRewards(type: EnemyType) {
   const boss = type === "mushroom-king" || type === "fishpeople-guardian" || type === "fishpeople-researcher" || type === "fishpeople-lord" || type === "demon-prince" || type === "zugwang" || type === "mutant-boar" || type === "coco-klan-chief" || type === "fishpeople-guide";
   return { ...enemies[type], type, boss, semiBoss: type === "mushroom-chicken", wishCurrency: 0 };

@@ -74,6 +74,12 @@ model User {
   wishPayments WishPayment[]
   pvpHosted PvpRoom[] @relation("PvpHost")
   pvpJoined PvpRoom[] @relation("PvpGuest")
+  gatheringMember GatheringMember?
+  gatheringMessages GatheringMessage[]
+  gatheringSent GatheringChallenge[] @relation("GatheringChallenger")
+  gatheringReceived GatheringChallenge[] @relation("GatheringOpponent")
+  endlessRuns EndlessRun[]
+  endlessScores EndlessScore[]
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
@@ -326,4 +332,95 @@ model SupportSubmission {
   @@index([status, createdAt])
   @@index([userId, createdAt])
   @@map("support_submissions")
+}
+
+model GatheringRoom {
+  id Int @id @default(autoincrement())
+  capacity Int @default(12)
+  createdAt DateTime @default(now()) @map("created_at")
+  members GatheringMember[]
+  messages GatheringMessage[]
+  challenges GatheringChallenge[]
+  @@map("gathering_rooms")
+}
+
+model GatheringMember {
+  userId String @id @map("user_id") @db.VarChar(30)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roomId Int @map("room_id")
+  room GatheringRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  token String @db.VarChar(36)
+  x Float @default(0.5)
+  y Float @default(0.7)
+  lastSeen DateTime @default(now()) @map("last_seen")
+  @@index([roomId, lastSeen])
+  @@map("gathering_members")
+}
+
+model GatheringMessage {
+  id String @id @default(cuid()) @db.VarChar(30)
+  roomId Int @map("room_id")
+  room GatheringRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId String @map("user_id") @db.VarChar(30)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  body String @db.VarChar(200)
+  createdAt DateTime @default(now()) @map("created_at")
+  @@index([roomId, createdAt])
+  @@map("gathering_messages")
+}
+
+model GatheringChallenge {
+  id String @id @default(cuid()) @db.VarChar(30)
+  roomId Int @map("room_id")
+  room GatheringRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  fromId String @map("from_id") @db.VarChar(30)
+  from User @relation("GatheringChallenger", fields: [fromId], references: [id], onDelete: Cascade)
+  toId String @map("to_id") @db.VarChar(30)
+  to User @relation("GatheringOpponent", fields: [toId], references: [id], onDelete: Cascade)
+  status String @default("pending") @db.VarChar(16)
+  pvpCode String? @map("pvp_code") @db.VarChar(10)
+  createdAt DateTime @default(now()) @map("created_at")
+  expiresAt DateTime @map("expires_at")
+  @@index([roomId, expiresAt])
+  @@index([toId, status])
+  @@map("gathering_challenges")
+}
+
+model EndlessSettings {
+  id Int @id @default(1)
+  version Int @default(1)
+  config Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@map("endless_settings")
+}
+
+model EndlessRun {
+  id String @id @default(cuid()) @db.VarChar(30)
+  requestKey String @unique @map("request_key") @db.VarChar(36)
+  userId String @map("user_id") @db.VarChar(30)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  season Int
+  status String @default("active") @db.VarChar(16)
+  wave Int @default(1)
+  bestWave Int @default(0) @map("best_wave")
+  team Json
+  settings Json
+  balance Json
+  pending Json?
+  readyAt DateTime? @map("ready_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@index([userId, status])
+  @@map("endless_runs")
+}
+
+model EndlessScore {
+  userId String @map("user_id") @db.VarChar(30)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  season Int
+  bestWave Int @map("best_wave")
+  achievedAt DateTime @default(now()) @map("achieved_at")
+  @@id([userId, season])
+  @@index([season, bestWave, achievedAt])
+  @@map("endless_scores")
 }

@@ -2,7 +2,7 @@ import { Router, type RequestHandler } from "express";
 import { createHash } from "node:crypto";
 import { prisma } from "../lib/prisma.js";
 import { Prisma } from "../generated/prisma/client.js";
-import { accountProgress, levelUpReward, BASE_LEVEL_EXP, EXP_GROWTH } from "../models/account-progress.js";
+import { accountProgress, levelUpReward, experienceForLevel } from "../models/account-progress.js";
 import { HttpError } from "../utils/http-error.js";
 
 export const accountGrantsRouter = Router();
@@ -11,8 +11,10 @@ const MAX = 2147483647;
 export const MAX_GRANT_LEVEL = accountProgress(MAX).level;
 export function levelGrant(experience: number, amount: number) {
   const before = accountProgress(experience), level = before.level + amount;
-  if (!Number.isInteger(amount) || amount < 1 || level > MAX_GRANT_LEVEL) throw new HttpError(409, `Level grants cannot exceed account level ${MAX_GRANT_LEVEL}`);
-  const after = BASE_LEVEL_EXP * (EXP_GROWTH ** (level - 1) - 1) / (EXP_GROWTH - 1) + before.exp;
+  if (!Number.isInteger(amount) || amount < 1 || level > accountProgress(MAX).level) throw new HttpError(409, `Level grants cannot exceed account level ${accountProgress(MAX).level}`);
+  const threshold = experienceForLevel(level);
+  const required = accountProgress(threshold).expToNextLevel;
+  const after = threshold + Math.min(before.exp, required - 1);
   if (after > MAX) throw new HttpError(409, "Experience would exceed the account limit");
   return { experience: after, level, wishEarned: levelUpReward(experience, after).wishEarned };
 }
@@ -25,12 +27,12 @@ accountGrantsRouter.get("/:kind/tiers/:tier/preview", async (req, res) => {
   if (!Number.isInteger(tier) || tier < 0 || tier > 3) throw new HttpError(400, "Choose a donation tier from 0 to 3");
   const users = await prisma.user.findMany({ where: { donationTier: tier }, orderBy: { id: "asc" }, select: { id: true, username: true }, take: 10001 });
   if (users.length > 10000) throw new HttpError(400, "A tier grant supports up to 10,000 accounts");
-  res.json({ data: { tier, count: users.length, recipientsHash: hashIds(users.map(user => user.id)), sample: users.slice(0, 10).map(user => user.username) } });
+  res.json({ data: { maxLevel: accountProgress(MAX).level, tier, count: users.length, recipientsHash: hashIds(users.map(user => user.id)), sample: users.slice(0, 10).map(user => user.username) } });
 });
 const grant: RequestHandler = async (req, res) => {
   const kind = String(req.params.kind), amount = req.body?.amount, key = req.get("Idempotency-Key");
   const userId = req.params.id ? String(req.params.id) : null, tier = userId ? null : req.body?.tier, hash = userId ? null : req.body?.recipientsHash;
-  if (!Number.isInteger(amount) || amount < 1 || amount > (kind === "gold" ? 1000000 : MAX_GRANT_LEVEL - 1)) throw new HttpError(400, `Enter a whole amount from 1 to ${kind === "gold" ? "1,000,000" : MAX_GRANT_LEVEL - 1}`);
+  if (!Number.isInteger(amount) || amount < 1 || amount > (kind === "gold" ? 1000000 : accountProgress(MAX).level - 1)) throw new HttpError(400, `Enter a whole amount from 1 to ${kind === "gold" ? "1,000,000" : accountProgress(MAX).level - 1}`);
   if (!key || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) throw new HttpError(400, "A valid grant request key is required");
   if (Object.keys(req.body ?? {}).some(field => !(userId ? ["amount"] : ["amount", "tier", "recipientsHash"]).includes(field))) throw new HttpError(400, "Invalid grant fields");
   if (!userId && (!Number.isInteger(tier) || tier < 0 || tier > 3 || typeof hash !== "string" || !/^[a-f0-9]{64}$/.test(hash))) throw new HttpError(400, "Choose a tier and preview recipients first");

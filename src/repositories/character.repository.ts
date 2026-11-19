@@ -9,7 +9,8 @@ import { accountProgress } from "../models/account-progress.js";
 import { actionTiming } from "../models/action-timing.js";
 import { characterSkills } from "../models/skills.js";
 import { effectiveStats } from "../models/artifact.js";
-import { characterUpgrades, UPGRADE_COST } from "../models/character-upgrade.js";
+import { characterUpgrades } from "../models/character-upgrade.js";
+import { economySettings, artifactEnhanceCost, characterUpgradeCost, characterUpgradeGain, skillUnlockCost } from "../models/economy.js";
 import { questItems } from "../models/quest-item.js";
 
 function toCharacter(record: { name: string; weapon: Weapon }): Character {
@@ -38,6 +39,7 @@ export async function createCharacter(userId: string, character: Character): Pro
         starterCreated: true, wishCurrency: { increment: 100 },
       } });
       if (!claimed.count) throw new HttpError(409, "You already have a character");
+      await tx.user.updateMany({ where: { id: userId, googleSubject: { not: null } }, data: { name: character.name } });
       const starter = await tx.character.create({ data: {
         userId, name: character.name, weapon: character.weapon.replaceAll("-", "_") as Weapon, isStarter: true,
       } });
@@ -69,14 +71,15 @@ export async function characterState(userId: string) {
     characters: user.characters.map((character) => {
       const owned = toCharacter(character);
       const stats = effectiveStats(owned.weapon, character.artifact, character.upgradeLevel);
-      return { ...owned, id: character.id, isStarter: character.isStarter, skill2Unlocked: character.skill2Unlocked, upgradeLevel: character.upgradeLevel, upgrade: characterUpgrades[owned.weapon] ? { ...characterUpgrades[owned.weapon], cost: UPGRADE_COST } : null, artifactId: character.artifact?.id ?? null, baseStats: baseStats[owned.weapon], stats, timing: actionTiming(stats.speed), skills: characterSkills(owned.weapon, character.skill2Unlocked) };
+      return { ...owned, id: character.id, isStarter: character.isStarter, skill2Unlocked: character.skill2Unlocked, upgradeLevel: character.upgradeLevel, upgrade: characterUpgrades[owned.weapon] ? { ...characterUpgrades[owned.weapon], amount: characterUpgradeGain(owned.weapon, character.upgradeLevel), cost: characterUpgradeCost(character.upgradeLevel, owned.weapon) } : null, artifactId: character.artifact?.id ?? null, baseStats: baseStats[owned.weapon], stats, timing: actionTiming(stats.speed), skills: characterSkills(owned.weapon, character.skill2Unlocked) };
     }),
+    economy: economySettings(),
     wishCurrency: user.wishCurrency,
     garnalandUnlocked: user.garnalandUnlocked,
     deepSeaFloor: user.deepSeaFloor,
     deepSeaMothUnlocked: user.questItems.some((item) => item.itemId === "deepsea-moth-map"),
     questItems: user.questItems.map(({ itemId }) => questItems[itemId as keyof typeof questItems]).filter(Boolean),
-    artifacts: user.artifacts.map(({ id, stat, characterId, enhancementLevel }) => ({ id, stat, characterId, enhancementLevel })),
+    artifacts: user.artifacts.map(({ id, stat, characterId, enhancementLevel }) => ({ id, stat, characterId, enhancementLevel, enhanceCost: artifactEnhanceCost(enhancementLevel) })),
     teamSlots: user.teamSlots ?? [starter?.id ?? null, null, null, null, null, null],
     gold: user.gold,
     progression: accountProgress(user.experience),
@@ -92,8 +95,9 @@ export async function upgradeCharacter(userId: string, characterId: string) {
     if (!character) throw new HttpError(404, "Character not found");
     const weapon = toCharacter(character).weapon;
     if (!characterUpgrades[weapon]) throw new HttpError(409, "Upgrades are not available for this class yet");
-    const paid = await tx.user.updateMany({ where: { id: userId, gold: { gte: UPGRADE_COST } }, data: { gold: { decrement: UPGRADE_COST } } });
-    if (!paid.count) throw new HttpError(409, "You need 1,000 gold to upgrade this character");
+    const cost = characterUpgradeCost(character.upgradeLevel, weapon);
+    const paid = await tx.user.updateMany({ where: { id: userId, gold: { gte: cost } }, data: { gold: { decrement: cost } } });
+    if (!paid.count) throw new HttpError(409, `You need ${cost.toLocaleString()} gold to upgrade this character`);
     await tx.character.update({ where: { id: characterId }, data: { upgradeLevel: { increment: 1 } } });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   return characterState(userId);
@@ -158,8 +162,9 @@ export async function unlockSkill2(userId: string, id: string) {
     const character = await tx.character.findFirst({ where: { id, userId } });
     if (!character) throw new HttpError(404, "Character not found");
     if (character.skill2Unlocked) return;
-    const paid = await tx.user.updateMany({ where: { id: userId, gold: { gte: SKILL_2_COST } }, data: { gold: { decrement: SKILL_2_COST } } });
-    if (!paid.count) throw new HttpError(409, "You need 1,000 gold to unlock Skill 2");
+    const cost = skillUnlockCost();
+    const paid = await tx.user.updateMany({ where: { id: userId, gold: { gte: cost } }, data: { gold: { decrement: cost } } });
+    if (!paid.count) throw new HttpError(409, `You need ${cost.toLocaleString()} gold to unlock Skill 2`);
     await tx.character.update({ where: { id }, data: { skill2Unlocked: true } });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   return characterState(userId);

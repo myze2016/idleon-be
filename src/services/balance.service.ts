@@ -3,11 +3,12 @@ import { defaultSkills, type SkillDefinition } from "../models/skills.js";
 import { type BalanceConfig } from "../models/balance-context.js";
 import { HttpError } from "../utils/http-error.js";
 import { defaultEnemies, type EnemyStats } from "../models/enemy.js";
+import { defaultEconomy, validateEconomy, normalizeEconomy } from "../models/economy.js";
 
 export function defaultBalance(): BalanceConfig {
-  return structuredClone({ stats: defaultBaseStats, skills: Object.fromEntries(Object.values(defaultSkills).flat().map(s => [s.id, s])), enemies: Object.fromEntries(Object.entries(defaultEnemies).map(([id, enemy]) => [id, enemy.stats])), rewards: Object.fromEntries(Object.entries(defaultEnemies).map(([id, enemy]) => [id, { gold: enemy.gold, experience: 1 }])) });
+  return structuredClone({ economy: defaultEconomy, stats: defaultBaseStats, skills: Object.fromEntries(Object.values(defaultSkills).flat().map(s => [s.id, s])), enemies: Object.fromEntries(Object.entries(defaultEnemies).map(([id, enemy]) => [id, enemy.stats])), rewards: Object.fromEntries(Object.entries(defaultEnemies).map(([id, enemy]) => [id, { gold: enemy.gold, experience: 1 }])) });
 }
-export function normalizeBalance(config: BalanceConfig): BalanceConfig { const defaults = defaultBalance(); return { ...config, enemies: { ...defaults.enemies, ...config.enemies }, rewards: { ...defaults.rewards, ...config.rewards } }; }
+export function normalizeBalance(config: BalanceConfig): BalanceConfig { const defaults = defaultBalance(); return { ...config, economy: normalizeEconomy(config.economy), enemies: { ...defaults.enemies, ...config.enemies }, rewards: { ...defaults.rewards, ...config.rewards } }; }
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function number(value: unknown, min: number, max: number, integer = false) {
   return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max && (!integer || Number.isInteger(value));
@@ -15,7 +16,8 @@ function number(value: unknown, min: number, max: number, integer = false) {
 /** Accept only known fields and ranges; preserve mechanics, names and damage scaling. */
 export function validateBalance(input: unknown): BalanceConfig {
   const defaults = defaultBalance();
-  if (!record(input) || Object.keys(input).some(k => !["stats", "skills", "enemies", "rewards"].includes(k)) || !record(input.stats) || !record(input.skills)) throw new HttpError(400, "Invalid balance configuration");
+  if (!record(input) || Object.keys(input).some(k => !["stats", "skills", "enemies", "rewards", "economy"].includes(k)) || !record(input.stats) || !record(input.skills)) throw new HttpError(400, "Invalid balance configuration");
+  defaults.economy = validateEconomy(normalizeEconomy(input.economy));
   if (!record(input.rewards) || Object.keys(input.rewards).sort().join() !== Object.keys(defaults.rewards).sort().join()) throw new HttpError(400, "Include every enemy's rewards. Reload the balance editor if needed.");
   for (const id of Object.keys(defaults.rewards)) {
     const reward = input.rewards[id];

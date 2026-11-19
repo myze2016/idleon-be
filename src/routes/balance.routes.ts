@@ -5,7 +5,7 @@ import { defaultBalance, validateBalance, normalizeBalance } from "../services/b
 import { withBalance, type BalanceConfig } from "../models/balance-context.js";
 import { generatePatchNotes } from "../services/patch-notes.service.js";
 import { defaultSkills } from "../models/skills.js";
-import { enemies } from "../models/enemy.js";
+import { enemies, enemyLocations } from "../models/enemy.js";
 import { effectiveStats } from "../models/artifact.js";
 import type { WeaponType } from "../models/character.js";
 import { simulateSkillBattle } from "../services/skill-battle.service.js";
@@ -20,7 +20,7 @@ balanceRouter.get("/", async (_req, res) => {
   const history = await prisma.balanceRevision.findMany({ orderBy: { id: "desc" }, take: 10, select: { id: true, adminId: true, note: true, createdAt: true } });
   res.json({ data: { version: saved?.version ?? 0, config: saved ? normalizeBalance(saved.config as unknown as BalanceConfig) : defaultBalance(), defaults: defaultBalance(), history,
     weapons: Object.entries(defaultSkills).map(([weapon, skills]) => ({ weapon, skills: skills.map(s => s.id) })),
-    monsters: Object.entries(enemies).map(([id, enemy]) => ({ id, name: enemy.name, stats: enemy.stats })) } });
+    monsters: Object.entries(enemies).map(([id, enemy]) => ({ id, name: enemy.name, stats: enemy.stats, locations: enemyLocations(id as EnemyType) })) } });
 });
 balanceRouter.get("/history/:id", async (req, res) => {
   const id = Number(req.params.id);

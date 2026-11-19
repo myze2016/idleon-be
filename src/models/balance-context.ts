@@ -2,7 +2,9 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { CharacterStats } from "./character-stats.js";
 import type { SkillDefinition } from "./skills.js";
 import type { EnemyStats } from "./enemy.js";
+import type { EconomySettings } from "./economy.js";
 export interface BalanceConfig {
+  economy?: EconomySettings;
   stats: Record<string, CharacterStats>;
   skills: Record<string, SkillDefinition>;
   enemies: Record<string, EnemyStats>;

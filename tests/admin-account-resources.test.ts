@@ -9,6 +9,8 @@ import { env } from "../src/config/env.js";
 import { hashPassword } from "../src/utils/password.js";
 import { levelGrant, MAX_GRANT_LEVEL } from "../src/routes/account-grants.routes.js";
 import { accountProgress } from "../src/models/account-progress.js";
+import { defaultBalance } from "../src/services/balance.service.js";
+import { withBalance } from "../src/models/balance-context.js";
 
 test("level grants preserve level progress, apply normal wish rewards and respect XP capacity", () => {
   assert.equal(MAX_GRANT_LEVEL, 28);
@@ -18,6 +20,16 @@ test("level grants preserve level progress, apply normal wish rewards and respec
   assert.equal(levelGrant(0, 27).level, 28);
   assert.throws(() => levelGrant(2147483647, 1));
   assert.throws(() => levelGrant(0, 28)); assert.throws(() => levelGrant(0, 0));
+});
+
+test("direct EXP tables with cheaper later levels still grant exactly the requested levels", () => {
+  const config = defaultBalance(); config.economy!.levelExp = [100, 10];
+  withBalance(config, () => {
+    const grant = levelGrant(90, 1);
+    assert.equal(grant.level, 2); assert.equal(grant.wishEarned, 100);
+    assert.equal(accountProgress(grant.experience).level, 2);
+    assert.equal(accountProgress(grant.experience).exp, 9);
+  });
 });
 
 test("gold and account-level modules enforce admin access, audited retries and atomic tier grants", async () => {
