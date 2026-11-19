@@ -13,6 +13,7 @@ import { adminRouter } from "./admin.routes.js";
 import { supportRouter } from "./support.routes.js";
 import { gameBalance } from "../middlewares/game-balance.js";
 import { patchNotesRouter } from "./patch-notes.routes.js";
+import { realtimeRouter } from "./realtime.routes.js";
 
 export const apiRouter = Router();
 apiRouter.use(gameBalance);
@@ -27,6 +28,7 @@ apiRouter.get("/wiki/characters", requireAuth, (_req, res) => {
   res.json({ data: characterWiki() });
 });
 apiRouter.use("/auth", authRouter);
+apiRouter.use("/realtime", realtimeRouter);
 apiRouter.use("/character", characterRouter);
 apiRouter.use("/encounters", encounterRouter);
 apiRouter.use("/pvp", pvpRouter);

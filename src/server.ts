@@ -1,10 +1,12 @@
 import { app } from "./app.js";
 import { env } from "./config/env.js";
 import { prisma } from "./lib/prisma.js";
+import { attachRealtimeServer } from "./services/realtime-server.js";
 
 await prisma.$connect();
 await prisma.session.deleteMany({ where: { expiresAt: { lte: new Date() } } });
 const server = app.listen(env.port, "0.0.0.0");
+const stopRealtime = attachRealtimeServer(server);
 server.on("listening", () => {
   console.log(`API listening on http://localhost:${env.port}`);
 });
@@ -16,6 +18,7 @@ server.on("error", (error) => {
 function shutdown() {
   const timeout = setTimeout(() => process.exit(1), 10_000);
   timeout.unref();
+  void stopRealtime();
   server.close(async (error) => {
     await prisma.$disconnect();
     clearTimeout(timeout);
