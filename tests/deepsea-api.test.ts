@@ -24,7 +24,7 @@ test("DeepSea Moot gates entry on the map, unlocks each floor permanently, and k
     const regular = (await spawn(location).expect(201)).body.data;
     assert.ok(regular.deepSeaProgress.target >= 30 && regular.deepSeaProgress.target <= 40);
     const wave = [regular, ...regular.additionalEnemies];
-    assert.ok(wave.length >= 1 && wave.length <= 2);
+    assert.equal(wave.length, 1);
     assert.ok(wave.every((enemy) => (enemyPools[location] as string[]).includes(enemy.type)));
     await prisma.user.update({ where: { id: userId }, data: { deepSeaProgress: { [location]: { defeated: 30, target: 30 } } } });
     const boss = (await spawn(location, false).expect(201)).body.data;

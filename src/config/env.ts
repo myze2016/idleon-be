@@ -16,6 +16,14 @@ if (!["http:", "https:"].includes(origin.protocol) || origin.origin !== corsOrig
   throw new Error("CORS_ORIGIN must be an HTTP(S) origin without a trailing slash");
 }
 
+const corsAdditionalOrigins = (process.env.CORS_ADDITIONAL_ORIGINS ?? "").split(",").map((value) => value.trim()).filter(Boolean);
+for (const value of corsAdditionalOrigins) {
+  const additionalOrigin = new URL(value);
+  if (!["http:", "https:"].includes(additionalOrigin.protocol) || additionalOrigin.origin !== value) {
+    throw new Error("CORS_ADDITIONAL_ORIGINS must contain HTTP(S) origins without trailing slashes");
+  }
+}
+
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
 const database = new URL(databaseUrl);
@@ -28,4 +36,4 @@ if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0 || trustProxyHops > 
   throw new Error("TRUST_PROXY_HOPS must be an integer between 0 and 5");
 }
 
-export const env = { port, nodeEnv, corsOrigin, databaseUrl, trustProxyHops };
+export const env = { port, nodeEnv, corsOrigin, corsAdditionalOrigins, databaseUrl, trustProxyHops };

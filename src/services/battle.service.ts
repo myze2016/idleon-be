@@ -3,7 +3,7 @@ import { actionDuration } from "../models/action-timing.js";
 import type { WeaponType } from "../models/character.js";
 import { simulateSkillBattle } from "./skill-battle.service.js";
 
-export interface Fighter { id: string; stats: CharacterStats; weapon?: WeaponType; skill2Unlocked?: boolean; hp?: number; mp?: number; backRow?: boolean }
+export interface Fighter { id: string; stats: CharacterStats; weapon?: WeaponType; skill2Unlocked?: boolean; skill2Enabled?: boolean; hp?: number; mp?: number; backRow?: boolean }
 export interface BattleStep {
   at: number;
   actor: "team" | "enemy"; characterId: string; damage: number; enemyHp: number; teamHp: number[];

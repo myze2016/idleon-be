@@ -41,14 +41,16 @@ test("Endless admin controls, verified distance and continuous spawns, snapshots
     const wave = (await post(one, `${run.id}/wave`).expect(200)).body.data;
     assert.equal(wave.pending.enemyType, "slime");
     assert.equal(wave.pending.result.duration, 12);
-    assert.ok(wave.pending.result.fighters.length > 2);
-    const initialBatch = wave.pending.result.fighters.filter((fighter: { enemyType?: string; spawnAt?: number }) => fighter.enemyType && fighter.spawnAt === 0);
-    assert.equal(initialBatch.length, 3);
-    assert.equal(new Set(initialBatch.map((fighter: { startX: number }) => fighter.startX)).size, 3);
-    const laterBatch = wave.pending.result.fighters.filter((fighter: { enemyType?: string; spawnAt?: number }) => fighter.enemyType && fighter.spawnAt! > 0);
-    assert.equal(laterBatch.length, 3);
-    assert.equal(new Set(laterBatch.map((fighter: { spawnAt: number }) => fighter.spawnAt)).size, 1);
-    assert.ok(laterBatch[0].spawnAt >= 6 && laterBatch[0].spawnAt <= 8);
+    const enemies = wave.pending.result.fighters.filter((fighter: { enemyType?: string }) => fighter.enemyType);
+    const spawnTimes = [...new Set<number>(enemies.map((fighter: { spawnAt: number }) => fighter.spawnAt))];
+    assert.equal(spawnTimes[0], 0);
+    for (const [index, at] of spawnTimes.entries()) {
+      const batch = enemies.filter((fighter: { spawnAt: number }) => fighter.spawnAt === at);
+      assert.ok(batch.length >= 1 && batch.length <= 2);
+      assert.equal(new Set(batch.map((fighter: { startX: number }) => fighter.startX)).size, batch.length);
+      const nextAt = spawnTimes[index + 1] ?? 12 + wave.pending.nextSpawnIn;
+      assert.ok(nextAt - at >= 5 - 1e-8 && nextAt - at <= 25 + 1e-8);
+    }
     assert.deepEqual((await post(one, `${run.id}/wave`).expect(200)).body.data.pending, wave.pending);
     await post(one, `${run.id}/resolve`, { wave: 1, bestWave: 99999 }).expect(409);
     await finish(run.id);
@@ -63,12 +65,17 @@ test("Endless admin controls, verified distance and continuous spawns, snapshots
     const newer = (await save(season, laterSettings).expect(200)).body.data;
     await prisma.character.update({ where: { id: first.id }, data: { upgradeLevel: 21 } });
     const next = (await post(one, `${run.id}/wave`).expect(200)).body.data;
-    assert.equal(next.season, season); assert.equal(next.pending.enemyType, "slime");
+    assert.equal(next.season, season);
+    assert.deepEqual(next.settings.enemyPool, ["slime"]);
+    assert.ok(next.pending.enemyType === "slime" || next.pending.enemyType === null);
     const incoming = next.pending.result.fighters.find((fighter: { id: string }) => fighter.id === "endless-2-0");
-    assert.equal(incoming.stats.hp, Math.ceil(40 * 1.2 ** Math.floor((120 + incoming.spawnAt * 10) / 500)));
-    const lastSpawn = Math.max(...wave.pending.result.fighters.filter((fighter: { enemyType?: string }) => fighter.enemyType).map((fighter: { spawnAt: number }) => fighter.spawnAt));
-    const gap = 12 + incoming.spawnAt - lastSpawn;
-    assert.ok(gap >= 6 - 1e-8 && gap <= 8 + 1e-8);
+    if (wave.pending.nextSpawnIn < 12 - 1e-8) {
+      assert.equal(incoming.spawnAt, wave.pending.nextSpawnIn);
+      assert.equal(incoming.stats.hp, Math.ceil(40 * 1.2 ** Math.floor((120 + incoming.spawnAt * 10) / 500)));
+    } else {
+      assert.equal(incoming, undefined);
+      assert.equal(next.pending.nextSpawnIn, wave.pending.nextSpawnIn - 12);
+    }
     assert.equal(next.pending.result.fighters[0].stats.hp, 300);
     assert.equal(next.pending.result.fighters[0].hp, after.team[0].hp);
     await finish(run.id);

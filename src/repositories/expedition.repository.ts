@@ -5,7 +5,7 @@ import { Prisma } from "../generated/prisma/client.js";
 import { enemies, encounterPool, harborPeriod, enemyRewards, type EnemyType, type Location } from "../models/enemy.js";
 import { effectiveStats, artifactDrops } from "../models/artifact.js";
 import type { WeaponType } from "../models/character.js";
-import { simulateGroupBattle } from "../services/battle.service.js";
+import { simulateExpeditionBattle } from "../services/expedition-battle.service.js";
 import { HttpError } from "../utils/http-error.js";
 import { accountProgress, levelUpReward } from "../models/account-progress.js";
 import { questDrops } from "../models/quest-item.js";
@@ -65,7 +65,7 @@ export async function spawnEncounter(userId: string, ids: string[], location: Lo
     const bossType = garnaland ? "mushroom-king" : deep ? deepSeaFloors[location].boss : location === "tourney" ? "zugwang" : location === "harbor" ? "fishpeople-guide" : location === "meadow" ? "mutant-boar" : "coco-klan-chief";
     const bossDue = defeats >= target && !active.some((encounter) => enemyRewards(encounter.enemyType as EnemyType).boss);
     const special = garnaland ? garnalandSpecial(garnalandProgress, active.map((entry) => entry.enemyType)) : null;
-    const count = (garnaland ? !!special : bossDue) ? 1 : Math.min(32 - active.length, (deep || location === "tourney") ? randomInt(1, 3) : location === "harbor" ? randomInt(1, 4) : wave && location === "forest" ? randomInt(1, 3) : 1);
+    const count = (garnaland ? !!special : bossDue) ? 1 : Math.min(32 - active.length, location === "tourney" ? randomInt(1, 4) : location === "harbor" || (wave && location === "forest") ? randomInt(1, 3) : 1);
     const spawned = [];
     for (let index = 0; index < count; index++) {
       const enemyType = garnaland ? special ?? pool[randomInt(pool.length)] : bossDue ? bossType : pool[randomInt(pool.length)];
@@ -110,7 +110,7 @@ export async function resolveEncounters(userId: string, ids: string[], lootRoll?
     });
     if (fighters.every((fighter) => fighter.hp <= 0)) throw new HttpError(409, "Your team is defeated. Return to the room.");
     const types = encounters.map((encounter) => encounter.enemyType as EnemyType);
-    const battle = simulateGroupBattle(fighters, types.map((type) => enemies[type].stats));
+    const battle = simulateExpeditionBattle(fighters, encounters.map(({ id }, index) => ({ id, type: types[index] })));
     const originalCount = encounters.length;
     for (const summon of battle.summoned) {
       const record = await tx.encounter.create({ data: { userId, teamIds, location: encounters[0].location, enemyType: summon.type, battleId: ids[0], result: { battleId: ids[0] } } });

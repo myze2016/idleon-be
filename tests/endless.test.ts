@@ -19,16 +19,24 @@ test("Endless validates the spawn pool and multiplier and preserves enemy mechan
   assert.equal(base.hp, 550);
 });
 
-test("Endless scales by distance and keeps spawn intervals between 6 and 8 seconds", () => {
+test("Endless scales by distance and keeps spawn intervals between 5 and 25 seconds", () => {
   const base = defaultEnemies.slime.stats;
   assert.deepEqual(endlessDistanceStats(base, 0, 2), base);
   for (const distance of [-1, 100, 200, 499.99]) assert.deepEqual(endlessDistanceStats(base, distance, 2), base);
   assert.equal(endlessDistanceStats(base, 500, 2).hp, base.hp * 2);
   assert.equal(endlessDistanceStats(base, 999.99, 2).hp, base.hp * 2);
   assert.equal(endlessDistanceStats(base, 1000, 2).hp, base.hp * 4);
-  assert.equal(endlessSpawnInterval(() => 0), 6);
-  assert.equal(endlessSpawnInterval(() => 0.5), 7);
-  assert.equal(endlessSpawnInterval(() => 1), 8);
+  assert.equal(endlessSpawnInterval(() => 0), 5);
+  assert.equal(endlessSpawnInterval(() => 0.5), 15);
+  assert.equal(endlessSpawnInterval(() => 1), 25);
+});
+
+test("Endless can travel for an entire checkpoint between enemy spawns", () => {
+  const stats = { hp: 100, mp: 100, atk: 10, def: 10, magic: 0, magicDef: 0, speed: 0, range: "melee" as const };
+  const result = simulateDuel([{ id: "hero", name: "Hero", userId: "player", stats, startX: 400 }], () => 0.5, 12);
+  assert.equal(result.duration, 12);
+  assert.equal(result.winnerId, "player");
+  assert.ok(result.continuation![0].startX! > 400);
 });
 
 test("continuous combat spawns enemies while others are alive and preserves combat across checkpoints", () => {

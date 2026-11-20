@@ -2,7 +2,7 @@ import { env } from "./env.js";
 
 export function isAllowedOrigin(value?: string) {
   if (!value) return false;
-  if (value === env.corsOrigin) return true;
+  if (value === env.corsOrigin || env.corsAdditionalOrigins.includes(value)) return true;
   if (env.nodeEnv === "production") return false;
   try {
     const url = new URL(value), host = url.hostname;

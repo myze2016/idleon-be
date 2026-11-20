@@ -31,6 +31,16 @@ test("PvP also stops spending on Freeze when Freeze All is ready and needs mana"
   assert.ok(!result.steps.some((step) => step.actor === 0 && step.label === "Casting Freeze" && step.at >= completed.at + 5 && step.at < next.at));
 });
 
+test("Disabling active Skill 2 lets the shared simulator spend mana on Skill 1", () => {
+  const result = simulateDuel([
+    { id: "juan", userId: "a", name: "Juan", weapon: "ice-staff", skill2Unlocked: true, skill2Enabled: false, mp: 20, stats: { ...baseStats["ice-staff"], hp: 1000 } },
+    { id: "tank", userId: "b", name: "Tank", startX: 240, stats: { ...baseStats["sword-and-shield"], hp: 10000, mp: 0, atk: 1 } },
+  ], () => 0.99, 8);
+  const casts = result.steps.filter(step => step.actor === 0 && step.kind === "cast");
+  assert.ok(casts.length > 0);
+  assert.ok(casts.every(step => step.label === "Casting Freeze"));
+});
+
 test("Saving does not block locked/passive Skill 2, cooldowns, or unaffordable max MP and HP costs", () => {
   const freeze = skills["ice-staff"][1];
   assert.equal(savesManaForSkill2(freeze, true, 20, 150, 100, 0, 1), true);

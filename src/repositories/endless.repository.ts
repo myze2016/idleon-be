@@ -2,7 +2,7 @@ import { playerIdentity, playerNameSelect } from "../models/player-name.js";
 import { randomInt } from "node:crypto";
 import { prisma } from "../lib/prisma.js";
 import { Prisma, type EndlessRun } from "../generated/prisma/client.js";
-import { defaultEndless, endlessDistanceStats, endlessSpawnInterval, ENDLESS_CHECKPOINT_SECONDS, ENDLESS_METERS_PER_SECOND, ENDLESS_SPAWN_BATCH_SIZE, validateEndless, type EndlessConfig } from "../models/endless.js";
+import { defaultEndless, endlessDistanceStats, endlessSpawnInterval, ENDLESS_CHECKPOINT_SECONDS, ENDLESS_METERS_PER_SECOND, validateEndless, type EndlessConfig } from "../models/endless.js";
 import { currentBalance, withBalance, type BalanceConfig } from "../models/balance-context.js";
 import { defaultBalance, normalizeBalance } from "../services/balance.service.js";
 import { effectiveStats } from "../models/artifact.js";
@@ -11,7 +11,7 @@ import type { WeaponType } from "../models/character.js";
 import { simulateDuel, type DuelFighter, type DuelResult } from "../services/pvp-battle.service.js";
 import { HttpError } from "../utils/http-error.js";
 
-type Pending = { enemyType: EnemyType; result: DuelResult; nextSpawnIn?: number };
+type Pending = { enemyType: EnemyType | null; result: DuelResult; nextSpawnIn?: number };
 const isolationLevel = Prisma.TransactionIsolationLevel.ReadCommitted;
 const json = (value: unknown) => value as Prisma.InputJsonValue;
 export async function endlessSettings() {
@@ -87,7 +87,8 @@ export async function prepareEndlessWave(userId: string, id: string) {
     const capacity = Math.max(0, 40 - team.filter(member => member.userId !== userId).length);
     let spawnAt = (settings as EndlessConfig & { spawnDelay?: number }).spawnDelay ?? 0;
     for (; spawnAt < ENDLESS_CHECKPOINT_SECONDS - 1e-8; spawnAt += endlessSpawnInterval(() => randomInt(1_000_001) / 1_000_000)) {
-      for (let member = 0; member < ENDLESS_SPAWN_BATCH_SIZE && incoming.length < capacity; member++) {
+      const batchSize = randomInt(1, 3);
+      for (let member = 0; member < batchSize && incoming.length < capacity; member++) {
         const at = spawnAt;
         const type = settings.enemyPool[randomInt(settings.enemyPool.length)];
         const enemy = withBalance(balance, () => enemies[type]);
@@ -98,7 +99,7 @@ export async function prepareEndlessWave(userId: string, id: string) {
     const result = withBalance(balance, () => {
       return simulateDuel([...team, ...incoming], undefined, ENDLESS_CHECKPOINT_SECONDS);
     });
-    const updated = await tx.endlessRun.update({ where: { id }, data: { pending: json({ enemyType: incoming[0]?.enemyType ?? team.find(member => member.enemyType)?.enemyType, result, nextSpawnIn: spawnAt - ENDLESS_CHECKPOINT_SECONDS }), readyAt: new Date(Date.now() + Math.max(1000, Math.ceil(result.duration * 1000))) } });
+    const updated = await tx.endlessRun.update({ where: { id }, data: { pending: json({ enemyType: incoming[0]?.enemyType ?? team.find(member => member.enemyType)?.enemyType ?? null, result, nextSpawnIn: spawnAt - ENDLESS_CHECKPOINT_SECONDS }), readyAt: new Date(Date.now() + Math.max(1000, Math.ceil(result.duration * 1000))) } });
     return state(updated);
   }, { isolationLevel });
 }

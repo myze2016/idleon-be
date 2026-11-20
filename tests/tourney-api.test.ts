@@ -20,7 +20,7 @@ test("Tourney waves, isolated boss progress, rewards, replay, and return reset",
   for (let index = 0; index < 8; index++) {
     const wave = (await spawn().expect(201)).body.data;
     const monsters = [wave, ...wave.additionalEnemies];
-    assert.ok(monsters.length >= 1 && monsters.length <= 2);
+    assert.ok(monsters.length >= 1 && monsters.length <= 3);
     assert.ok(monsters.every((monster) => encounterPool("tourney").includes(monster.type)));
   }
   await prisma.user.update({ where: { id: userId }, data: { tourneyDefeats: 50, tourneyBossAt: 50, forestDefeats: 12, meadowDefeats: 7 } });
