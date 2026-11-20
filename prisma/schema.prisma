@@ -217,6 +217,7 @@ model Encounter {
   location String @default("meadow") @db.VarChar(16)
   battleId String? @map("battle_id") @db.VarChar(30)
   teamIds   Json @map("team_ids")
+  liveCombat Json? @map("live_combat")
   result    Json?
   createdAt DateTime @default(now()) @map("created_at")
 

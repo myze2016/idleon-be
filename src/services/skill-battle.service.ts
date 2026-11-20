@@ -4,7 +4,7 @@ import type { Fighter, BattleStep } from "./battle.service.js";
 import type { CharacterStats } from "../models/character-stats.js";
 import { DEFAULT_ENEMY_AREA_COOLDOWN, enemies as enemyCatalog, type EnemyStats } from "../models/enemy.js";
 import { skills, savesManaForSkill2, type SkillDefinition } from "../models/skills.js";
-import { actionDuration, spellCastTime } from "../models/action-timing.js";
+import { actionDuration, MANA_REGEN_PER_SECOND, spellCastTime } from "../models/action-timing.js";
 
 interface Buff { kind: "attack" | "speed" | "hero" | "burst"; amount: number; expires: number }
 interface Unit {
@@ -191,7 +191,7 @@ export function simulateSkillBattle(team: Fighter[], opponents: EnemyStats | Ene
       units.forEach((unit, index) => {
         if (unit.hp <= 0) return;
         const before = unit.mp;
-        unit.mp = Math.min(unit.fighter.stats.mp, unit.mp + (unit.fighter.backRow ? 10 : 5));
+        unit.mp = Math.min(unit.fighter.stats.mp, unit.mp + MANA_REGEN_PER_SECOND);
         if (unit.mp > before) restored.push(index);
       });
       if (restored.length) emit(restored[0], "team", 0, "mana", "Mana regeneration", { targetIds: restored.map((index) => units[index].fighter.id) });

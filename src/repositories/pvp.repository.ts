@@ -5,7 +5,7 @@ import { Prisma, type PvpRoom } from "../generated/prisma/client.js";
 import { effectiveStats } from "../models/artifact.js";
 import type { WeaponType } from "../models/character.js";
 import type { DuelFighter, DuelResult } from "../services/pvp-battle.service.js";
-import { hasActiveSkill2, latestSkill2Change, replayPvpBattle, startLivePvpBattle, type LivePvpResult } from "../services/live-combat.js";
+import { hasActiveSkill2, latestSkill2Change, liveSkill2Controls, replayPvpBattle, startLivePvpBattle, type LivePvpResult } from "../services/live-combat.js";
 import { HttpError } from "../utils/http-error.js";
 
 export function pvpPhase(room: Pick<PvpRoom, "status" | "startsAt" | "result" | "expiresAt">, now = Date.now()) {
@@ -132,8 +132,7 @@ export async function pvpState(userId: string, code: string, knownBattle?: strin
   const startsAt = room.startsAt?.toISOString() ?? null;
   const battleVersion = live?.changes.length ? `${startsAt}:${live.changes.length}` : startsAt;
   const resultUnchanged = !!stored && !!knownBattle && knownBattle === battleVersion && ["battle", "complete"].includes(phase);
-  const skill2 = live?.fighters.filter(fighter => fighter.userId === userId && hasActiveSkill2(fighter, live.balance))
-    .map(fighter => ({ id: fighter.id, name: fighter.name, enabled: latestSkill2Change(live.changes, fighter.id)?.enabled ?? true }));
+  const skill2 = live && liveSkill2Controls(userId, live);
   return { code, phase, serverNow: new Date().toISOString(), startsAt: room.startsAt?.toISOString() ?? null,
     players: [room.host, room.guest].map((user, side) => user ? { id: user.id, ...playerIdentity(user), ready: side === 0 ? room.hostReady : room.guestReady,
       selected: selection(room, side === 0).length > 0, selectedCount: selection(room, side === 0).length,

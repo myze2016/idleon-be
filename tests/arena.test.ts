@@ -69,6 +69,14 @@ test("admin mixed-team lab is deterministic, isolated, validated and publishes e
   const repeat = (await admin.post(path).set("Origin", env.corsOrigin).send(payload).expect(200)).body.data;
   assert.deepEqual(fight, repeat); assert.equal(fight.fighters.length, 4);
   assert.equal(fight.fighters.find((f: { enemyType?: string }) => f.enemyType === "slime").stats.hp, 888);
+  assert.ok(fight.steps.some((step: { cameraTravel?: number[] }) => (step.cameraTravel?.[0] ?? 0) > 0));
+  const turnOff = { fighterId: "team-1-slot-1", at: 1, enabled: false };
+  const toggled = (await admin.post(path).set("Origin", env.corsOrigin).send({ ...payload, changes: [turnOff] }).expect(200)).body.data;
+  assert.equal(toggled.skill2.find((control: { id: string }) => control.id === turnOff.fighterId).enabled, false);
+  const opening = (step: { at: number }) => step.at < turnOff.at;
+  assert.deepEqual(toggled.steps.filter(opening), fight.steps.filter(opening));
+  assert.ok(fight.steps.some((step: { actor: number; label: string }) => step.actor === 0 && step.label === "Casting Inferno"));
+  assert.ok(!toggled.steps.some((step: { actor: number; label: string }) => step.actor === 0 && step.label === "Casting Inferno"));
   assert.deepEqual(await prisma.user.findMany({ orderBy: { id: "asc" } }), before);
   assert.equal(await prisma.encounter.count(), encounters); assert.equal(await prisma.character.count(), characters);
   assert.equal(await prisma.gameBalance.count(), 0);

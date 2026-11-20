@@ -8,7 +8,7 @@ test("back-row melee charges mana without attacking or casting melee skills", ()
   const fighter: Fighter = { id: "axe", weapon: "axe", stats: baseStats.axe, backRow: true, mp: 0, skill2Unlocked: true };
   const front: Fighter = { id: "front", weapon: "sword-and-shield", stats: { ...baseStats["sword-and-shield"], hp: 10000 } };
   const result = simulateGroupBattle([front, fighter], [enemy], () => 0.99);
-  assert.ok(result.steps.some((step) => step.kind === "mana" && step.teamMp?.[1] === 10));
+  assert.equal(result.steps.find((step) => step.kind === "mana")?.teamMp?.[1], 2);
   assert.ok(!result.steps.some((step) => step.characterId === "axe" && step.actor === "team" && (step.damage > 0 || step.kind === "cast")));
   assert.ok(result.teamMp[1] <= baseStats.axe.mp);
 });

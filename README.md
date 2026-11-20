@@ -65,7 +65,7 @@ selections can be added or removed before readying. The first three lead and the
 next three stay behind. Both being ready starts a shared five-second countdown,
 with teams holding their starting formations at opposite ends of the battlefield.
 Current upgrades, artifacts, and unlocked skills are snapshotted;
-fighters start with full HP/MP and regenerate 5 MP per second. Battles draw after
+fighters start with full HP/MP and regenerate 2 MP per second. Battles draw after
 180 seconds. When the countdown ends, units advance at 120 battlefield units per
 second until in reach: 70 for melee basics and 600 for ranged basics and ranged
 skills. Ranged units stop farther away and can attack while melee closes the gap.
@@ -207,7 +207,7 @@ and effects. The catalog is generated from the same definitions as combat, inclu
 Harbor day/night variants and DeepSea Moot bosses. Search and location/boss filters
 are available in the wiki. Opening it during an expedition pauses battle playback.
 
-During battle, each living player character regenerates 5 MP every second, capped
+During battle, each living player character regenerates 2 MP every second, capped
 at effective maximum MP. Regeneration continues while casting, respects normal
 skill cooldowns, and does not apply to enemies or fallen allies. Battle snapshots
 include regeneration ticks so MP bars and saved expedition vitals stay in sync.

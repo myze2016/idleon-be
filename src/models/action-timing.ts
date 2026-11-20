@@ -1,5 +1,6 @@
 export const DEFAULT_ATTACK_INTERVAL = 1;
 export const DEFAULT_SPELL_CAST_TIME = 1;
+export const MANA_REGEN_PER_SECOND = 2;
 
 export function actionDuration(speed: number, baseSeconds = 1) {
   const effectiveSpeed = Number.isFinite(speed) ? Math.max(0, speed) : 0;

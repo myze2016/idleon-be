@@ -8,9 +8,10 @@ import { defaultSkills } from "../models/skills.js";
 import { enemies, enemyLocations } from "../models/enemy.js";
 import { effectiveStats } from "../models/artifact.js";
 import type { WeaponType } from "../models/character.js";
-import { simulateSkillBattle } from "../services/skill-battle.service.js";
+import { simulateExpeditionBattle } from "../services/expedition-battle.service.js";
+import { hasActiveSkill2, latestSkill2Change, LIVE_COMBAT_RULES_VERSION, liveSkill2Controls, type LiveCombat, type Skill2Change } from "../services/live-combat.js";
 import { HttpError } from "../utils/http-error.js";
-import { simulateDuel, type DuelFighter } from "../services/pvp-battle.service.js";
+import { COMBAT_ENCOUNTER_DISTANCE, simulateDuel, type DuelFighter } from "../services/pvp-battle.service.js";
 import type { EnemyType } from "../models/enemy.js";
 
 // Mounted behind the admin router's authentication, fresh role check and origin check.
@@ -59,14 +60,14 @@ balanceRouter.post("/test", (req, res) => {
   const random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 4294967296; };
   const result = withBalance(config, () => {
     const fighters = [...team].sort((a, b) => a.slot - b.slot).map(member => ({ id: `test-${member.slot + 1}`, weapon: member.weapon as WeaponType, stats: effectiveStats(member.weapon, null, member.upgradeLevel), skill2Unlocked: member.skill2Unlocked, backRow: member.slot >= 3 }));
-    return { ...simulateSkillBattle(fighters, enemies[monster as keyof typeof enemies].stats, random), fighters };
+    return { ...simulateExpeditionBattle(fighters, [{ id: "test-enemy", type: monster as EnemyType }], random, COMBAT_ENCOUNTER_DISTANCE), fighters };
   });
   res.json({ data: { ...result, duration: result.steps.at(-1)?.at ?? 0, seed } });
 });
 
 balanceRouter.post("/arena-test", (req, res) => {
   const config = validateBalance(req.body?.config);
-  const { team1, team2, seed } = req.body ?? {};
+  const { team1, team2, seed, changes = [] } = req.body ?? {};
   if (!Number.isInteger(seed) || seed < 0 || seed > 4294967295) throw new HttpError(400, "Enter a seed between 0 and 4294967295");
   interface Member { kind: "character" | "enemy"; id: string; slot: number; upgradeLevel: number; skill2Unlocked: boolean }
   function validateTeam(team: unknown): asserts team is Member[] {
@@ -81,6 +82,10 @@ balanceRouter.post("/arena-test", (req, res) => {
     }
   }
   validateTeam(team1); validateTeam(team2);
+  if (!Array.isArray(changes) || changes.length > 180 || changes.some(change =>
+    !change || typeof change.fighterId !== "string" || typeof change.enabled !== "boolean"
+    || !Number.isFinite(change.at) || change.at < 0 || change.at > 180)) throw new HttpError(400, "Invalid Skill 2 changes");
+  const history = (changes as Skill2Change[]).slice().sort((a, b) => a.at - b.at);
   let state = seed >>> 0;
   const random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 4294967296; };
   const result = withBalance(config, () => {
@@ -89,7 +94,17 @@ balanceRouter.post("/arena-test", (req, res) => {
       if (member.kind === "enemy") { const enemy = enemies[member.id as EnemyType]; return { ...common, name: enemy.name, enemyType: member.id as EnemyType, enemy: enemy.stats, stats: enemy.stats }; }
       return { ...common, name: member.id.replaceAll("-", " "), weapon: member.id as WeaponType, stats: effectiveStats(member.id as WeaponType, null, member.upgradeLevel), skill2Unlocked: member.skill2Unlocked };
     }));
-    return simulateDuel(fighters, random);
+    if (history.some(change => !fighters.some(fighter => fighter.id === change.fighterId && hasActiveSkill2(fighter, config)))) {
+      throw new HttpError(400, "Skill 2 is unavailable for that fighter");
+    }
+    const live: LiveCombat = { seed: String(seed), balance: config, fighters, changes: history, rulesVersion: LIVE_COMBAT_RULES_VERSION };
+    const result = simulateDuel(fighters, random, undefined, {
+      skill2EnabledAt: (fighter, at) => latestSkill2Change(history, fighter.id, at)?.enabled,
+    });
+    const skill2 = ["team-1", "team-2"].flatMap(team => liveSkill2Controls(team, live).map(control => ({
+      ...control, name: `${control.name} (${team === "team-1" ? "Team 1" : "Team 2"})`,
+    })));
+    return { ...result, skill2 };
   });
   res.json({ data: { ...result, seed } });
 });

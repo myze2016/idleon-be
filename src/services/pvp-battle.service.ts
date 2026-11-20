@@ -2,7 +2,7 @@ import { skillValue } from "../models/skills.js";
 import { randomInt } from "node:crypto";
 import type { BattleStep, Fighter } from "./battle.service.js";
 import { skills, savesManaForSkill2, type SkillDefinition } from "../models/skills.js";
-import { actionDuration, spellCastTime } from "../models/action-timing.js";
+import { actionDuration, MANA_REGEN_PER_SECOND, spellCastTime } from "../models/action-timing.js";
 import { DEFAULT_ENEMY_AREA_COOLDOWN, enemies as enemyCatalog, type EnemyStats, type EnemyType } from "../models/enemy.js";
 
 export interface DuelFighter extends Fighter { userId: string; name: string; startX?: number; enemyType?: EnemyType; enemy?: EnemyStats; spawnAt?: number; spawnOffset?: number; combat?: CombatContinuation }
@@ -10,25 +10,49 @@ interface CombatContinuation {
   next: number; ready: number[]; stun: number; enemyReady: number; guardUntil: number; shieldUntil: number;
   buffs: Buff[]; cast: { skill: SkillDefinition; slot: number; ends: number; starts?: number } | null;
   poison: { until: number; next: number; sourceId: string } | null; bleed: number; bleedNext: number; bleedSourceId?: string;
+  formationEngaged?: boolean;
+  cameraWorld?: number;
 }
 export interface DuelStep {
   at: number; side: number; actor: number; targets: number[]; kind: NonNullable<BattleStep["kind"]> | "move" | "spawn"; label: string;
   damage: number; healing: number; critical: boolean; hp: number[]; mp: number[]; x: number[];
   teamCasting?: BattleStep["teamCasting"];
+  castEndsAt?: number;
+  spearCasting?: number[];
+  cameraTravel?: number[];
+  cameraWorld?: number[];
 }
 export interface DuelResult { fighters: DuelFighter[]; steps: DuelStep[]; duration: number; winnerId: string | null; continuation?: DuelFighter[] }
 type Buff = { kind: "attack" | "speed" | "hero" | "burst"; amount: number; until: number };
 export const PVP_MELEE_RANGE = 70;
-export const PVP_RANGED_RANGE = 600;
+export const PVP_RANGED_RANGE = 780;
+export const COMBAT_VISIBLE_DISTANCE = 900;
+export const COMBAT_ENCOUNTER_DISTANCE = 1140;
 export const PVP_WALK_SPEED = 120;
+const ENEMY_WALK_SPEED = 84;
 const MOVE_TICK = 0.1;
 const rangedSkills = new Set(["shackle", "fireball", "inferno", "throw-spear", "long-shot", "bouncing-glaive", "freeze", "freeze-all"]);
 
 /** Ordered fighters: host formation followed by guest formation, front slots first. */
 export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_000_000) / 1_000_000, continuousSeconds?: number,
-  { expedition = false, skill2EnabledAt }: { expedition?: boolean; skill2EnabledAt?: (fighter: DuelFighter, at: number) => boolean | undefined } = {}): DuelResult {
+  { expedition = false, legacyRules = false, sharedEncounterDistance = true, rangedRange = PVP_RANGED_RANGE,
+    encounterDistance = COMBAT_ENCOUNTER_DISTANCE, visibleDistance = COMBAT_VISIBLE_DISTANCE, walkToRange = true, individualEngagement = true,
+    pacedApproach = true, holdRangedPosition = true, marchingFormation = true, rangedCasterFormation = true,
+    mobileSpearThrow = false, pauseFormationDuringCast = false, spearCastCamera = false,
+    unifiedMovement = true, skill2EnabledAt }: {
+    expedition?: boolean; legacyRules?: boolean; sharedEncounterDistance?: boolean; rangedRange?: number;
+    encounterDistance?: number; visibleDistance?: number; walkToRange?: boolean; individualEngagement?: boolean;
+    pacedApproach?: boolean; holdRangedPosition?: boolean; marchingFormation?: boolean; rangedCasterFormation?: boolean;
+    mobileSpearThrow?: boolean; pauseFormationDuringCast?: boolean; spearCastCamera?: boolean;
+    unifiedMovement?: boolean;
+    skill2EnabledAt?: (fighter: DuelFighter, at: number) => boolean | undefined;
+  } = {}): DuelResult {
   const adventure = expedition || !!continuousSeconds;
-  fighters = fighters.map((fighter, index) => ({ ...fighter, ...(adventure && fighter.userId === fighters[0]?.userId ? { backRow: fighter.backRow ?? index >= 3 } : {}) }));
+  fighters = fighters.map((fighter, index) => {
+    if (adventure && fighter.userId !== fighters[0]?.userId || !adventure && !sharedEncounterDistance) return { ...fighter };
+    const slot = fighters.slice(0, index).filter(other => other.userId === fighter.userId).length;
+    return { ...fighter, backRow: fighter.backRow ?? slot >= 3 };
+  });
   const owners = [...new Set(fighters.map((fighter) => fighter.userId))];
   const validTeamCount = owners.length === 2 || (!!continuousSeconds && owners.length === 1);
   if (!validTeamCount || (!adventure && owners.some((id) => fighters.filter((fighter) => fighter.userId === id).length > 6))) throw new Error("Combat requires two teams. PvP allows up to six fighters per team.");
@@ -36,7 +60,10 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
     const team = owners.indexOf(fighter.userId);
     const count = fighters.filter((other) => other.userId === fighter.userId).length;
     const slot = fighters.slice(0, index).filter((other) => other.userId === fighter.userId).length;
-    return { fighter, team, x: fighter.startX ?? (team === 0 ? 60 + (count - 1 - slot) * 64 : 1140 - (count - 1 - slot) * 64), hp: Math.max(0, Math.min(fighter.stats.hp, fighter.hp ?? fighter.stats.hp)), mp: Math.max(0, Math.min(fighter.stats.mp, fighter.mp ?? fighter.stats.mp)),
+    const offset = sharedEncounterDistance && !adventure
+      ? encounterDistance / 2 + slot * 64
+      : 540 - (count - 1 - slot) * 64;
+    return { fighter, team, x: fighter.startX ?? 600 + (team === 0 ? -offset : offset), hp: Math.max(0, Math.min(fighter.stats.hp, fighter.hp ?? fighter.stats.hp)), mp: Math.max(0, Math.min(fighter.stats.mp, fighter.mp ?? fighter.stats.mp)),
     spawned: (fighter.spawnAt ?? 0) <= 0,
     next: (fighter.spawnAt ?? 0) + actionDuration(fighter.stats.speed), ready: [0, 0], stun: 0, enemyReady: 0, guardUntil: 0, shieldUntil: 0, buffs: [] as Buff[],
     cast: null as CombatContinuation["cast"],
@@ -54,7 +81,9 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
       bleedNext: saved.bleed ? saved.bleedNext : Infinity,
     });
   });
-  if (adventure) {
+  const continuingFight = individualEngagement && !!continuousSeconds
+    && units.some(unit => (pacedApproach || unit.team === 1) && unit.hp > 0 && unit.fighter.combat);
+  if (adventure && !continuingFight) {
     const party = units.filter(unit => unit.team === 0);
     const first = party.findIndex(unit => unit.hp > 0);
     const front = Math.max(0, ...party.filter(unit => unit.hp > 0).map(unit => unit.x));
@@ -68,18 +97,58 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
   const activeSkill2 = (fighter: DuelFighter) => fighter.skill2Unlocked && (skill2EnabledAt?.(fighter, at) ?? fighter.skill2Enabled) !== false;
   const first = roll() < 0.5 ? 0 : 1;
   const alive = (team: number) => units.flatMap((unit, index) => unit.team === team && unit.hp > 0 && unit.spawned ? [index] : []);
+  const formationEngaged = [0, 1].map(team => alive(1 - team).length > 0
+    && alive(team).some(index => fighters[index].combat?.formationEngaged));
+  const cameraTravel = [0, 0];
+  const cameraOrigin = [0, 1].map(side => {
+    const team = alive(side), facing = side === 0 ? 1 : -1;
+    return team.map(index => fighters[index].combat?.cameraWorld).find(value => value !== undefined)
+      ?? (team.length ? Math.max(...team.map(index => units[index].x * facing)) : 0);
+  });
   const enemies = (index: number) => alive(1 - units[index].team).sort((a, b) => adventure && units[index].team === 1
     ? units[b].x - units[a].x || a - b
     : Math.abs(units[a].x - units[index].x) - Math.abs(units[b].x - units[index].x) || a - b);
   const allies = (index: number) => alive(units[index].team);
-  const protectedBackRow = (index: number) => adventure && units[index].team === 0 && fighters[index].backRow && allies(index).some(other => !fighters[other].backRow);
-  const basicRange = (index: number) => fighters[index].stats.range === "range" ? PVP_RANGED_RANGE : PVP_MELEE_RANGE;
-  const skillRange = (skill: SkillDefinition) => rangedSkills.has(skill.id) ? PVP_RANGED_RANGE : PVP_MELEE_RANGE;
+  const usesFormation = (index: number) => adventure ? units[index].team === 0 : sharedEncounterDistance;
+  const protectedBackRow = (index: number) => usesFormation(index) && fighters[index].backRow && allies(index).some(other => !fighters[other].backRow);
+  const basicRange = (index: number) => fighters[index].stats.range === "range" ? rangedRange : PVP_MELEE_RANGE;
+  const rangedFormation = (index: number) => {
+    const { stats, weapon } = fighters[index];
+    return stats.range === "range" || (rangedCasterFormation && (weapon === "staff" || weapon === "ice-staff"));
+  };
+  const skillRange = (skill: SkillDefinition) => rangedSkills.has(skill.id) ? rangedRange : PVP_MELEE_RANGE;
+  const moveDistance = PVP_WALK_SPEED * MOVE_TICK;
+  const canMove = (unit: typeof units[number]) => unit.hp > 0 && unit.spawned && unit.stun <= at + 1e-8
+    && (!unit.cast || (mobileSpearThrow && unit.cast.skill.id === "throw-spear"));
+  function savingSkill2Mana(index: number, skill: SkillDefinition | undefined, enabled: boolean | undefined) {
+    const unit = units[index];
+    return savesManaForSkill2(skill, enabled, unit.mp, unit.fighter.stats.mp, unit.hp, unit.ready[1], at)
+      && !!skill && eligible(index, skill);
+  }
+  function movementReach(index: number) {
+    const unit = units[index], native = unit.fighter.enemy, area = native?.burnAll ?? native?.slashAll;
+    let reach = basicRange(index);
+    const nativeReady = at + 1e-8 >= unit.enemyReady;
+    if (((!unifiedMovement || nativeReady) && ((native?.bubbleBeam && unit.mp >= native.bubbleBeam.mana)
+      || (native?.skill?.kind === "shot" && unit.mp >= native.skill.mana)))
+      || (area && nativeReady && unit.mp >= area.mana)) reach = Math.max(reach, rangedRange);
+    const definitions = unit.fighter.weapon ? skills[unit.fighter.weapon] : [];
+    const skill2Enabled = activeSkill2(unit.fighter);
+    const savingMana = individualEngagement && savingSkill2Mana(index, definitions[1], skill2Enabled);
+    for (const slot of [0, 1]) {
+      const skill = definitions[slot];
+      if (!skill || skill.passive || !rangedSkills.has(skill.id) || at < unit.ready[slot] || unit.mp < skill.mpCost || unit.hp <= skill.hpCost) continue;
+      if (slot === 1 ? !skill2Enabled : savingMana && skill.mpCost > 0) continue;
+      if (unifiedMovement || !individualEngagement || eligible(index, skill)) reach = Math.max(reach, skillRange(skill));
+    }
+    return reach;
+  }
   const inRange = (actor: number, target: number, range: number) => {
     // Adventure front-row melee units share contact with the leading enemy;
     // they fight from their formation instead of overtaking their teammates.
-    const formationReach = adventure && units[actor].team === 0 && range === PVP_MELEE_RANGE
-      ? Math.max(0, ...alive(0).map(index => units[index].x - units[actor].x)) : 0;
+    const direction = units[actor].team === 0 ? 1 : -1;
+    const formationReach = !individualEngagement && usesFormation(actor) && range === PVP_MELEE_RANGE
+      ? Math.max(0, ...allies(actor).map(index => (units[index].x - units[actor].x) * direction)) : 0;
     return Math.abs(units[actor].x - units[target].x) <= range + formationReach + 1e-5;
   };
   const stats = (index: number) => {
@@ -93,8 +162,13 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
     return value;
   };
   function emit(actor: number, kind: DuelStep["kind"], label: string, damage = 0, healing = 0, critical = false, targets: number[] = []) {
+    const spearCasting = spearCastCamera ? units.flatMap((unit, index) => unit.hp > 0 && unit.cast?.skill.id === "throw-spear" ? [index] : []) : [];
+    if (unifiedMovement && ["attack", "cast", "skill"].includes(kind)) formationEngaged[units[actor].team] = true;
     steps.push({ at, side: units[actor].team, actor, targets, kind, label, damage, healing, critical,
       hp: units.map((unit) => unit.hp), mp: units.map((unit) => unit.mp), x: units.map((unit) => unit.x),
+      ...(spearCasting.length ? { spearCasting } : {}),
+      ...(unifiedMovement ? { cameraTravel: [...cameraTravel], cameraWorld: cameraOrigin.map((origin, side) => origin + cameraTravel[side]),
+        ...(kind === "cast" ? { castEndsAt: units[actor].cast?.ends } : {}) } : {}),
       ...(expedition ? { teamCasting: units.filter(unit => unit.team === 0).map(({ cast }) => cast
         ? { name: cast.skill.name, startedAt: cast.starts ?? at, endsAt: cast.ends } : null) } : {}) });
   }
@@ -129,7 +203,7 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
     return true;
   }
   function basic(actor: number, counter = false, counterTarget?: number) {
-    if (protectedBackRow(actor) && fighters[actor].stats.range !== "range") return;
+    if (!individualEngagement && protectedBackRow(actor) && fighters[actor].stats.range !== "range") return;
     const targets = (counterTarget === undefined ? enemies(actor) : [counterTarget]).filter((target) => inRange(actor, target, basicRange(actor))).slice(0, units[actor].fighter.weapon === "glaive" ? 2 : 1);
     for (const target of targets) {
       const current = stats(actor), defender = stats(target);
@@ -155,7 +229,7 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
   function eligible(actor: number, skill: SkillDefinition) {
     if (skill.id === "heal" || skill.id === "mass-heal") return allies(actor).some((index) => units[index].hp < fighters[index].stats.hp);
     if (buffKind(skill.id)) return buffTargets(actor, skill).length > 0;
-    if (protectedBackRow(actor) && !rangedSkills.has(skill.id)) return false;
+    if (!individualEngagement && protectedBackRow(actor) && !rangedSkills.has(skill.id)) return false;
     return enemies(actor).some((index) => inRange(actor, index, skillRange(skill)) && (skill.id !== "shackle" || units[index].stun <= at));
   }
   function finish(actor: number) {
@@ -203,7 +277,7 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
     const skill = enemy.skill;
     if (skill && at >= unit.enemyReady && unit.mp >= skill.mana) {
       const targets = skill.kind === "heal-self" ? [actor].filter(i => units[i].hp < fighters[i].stats.hp) : skill.kind === "heal-all" ? allies(actor).filter(i => fighters[i].enemy?.fishpeople && units[i].hp < fighters[i].stats.hp) : [];
-      const rangedTargets = enemies(actor).filter(i => inRange(actor, i, PVP_RANGED_RANGE));
+      const rangedTargets = enemies(actor).filter(i => inRange(actor, i, rangedRange));
       const canUse = skill.kind === "shot" ? rangedTargets.length > 0 : skill.kind.startsWith("heal") ? targets.length > 0 : skill.kind === "summon" ? allies(actor).length < 6 && fighters.filter(f => f.userId === unit.fighter.userId).length < 24 : true;
       if (canUse) {
         unit.mp -= skill.mana; unit.enemyReady = at + skill.cooldown;
@@ -215,7 +289,8 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
         } else if (skill.kind === "summon") {
           const stats = structuredClone(enemyCatalog["fishpeople-knight"].stats), index = fighters.length;
           const fighter: DuelFighter = { id: `summon-${index}`, userId: unit.fighter.userId, name: "Summoned Knight", enemyType: "fishpeople-knight", enemy: stats, stats, spawnAt: at };
-          const x = Math.max(30, Math.min(1170, unit.x + (unit.team === 0 ? -50 : 50)));
+          const behind = unit.x + (unit.team === 0 ? -50 : 50);
+          const x = unifiedMovement ? behind : Math.max(30, Math.min(1170, behind));
           fighters.push(fighter); initialPositions.push(x);
           units.push({ ...unit, fighter, hp: stats.hp, mp: stats.mp, x, next: at + actionDuration(stats.speed), ready: [0, 0], stun: 0, enemyReady: 0, guardUntil: 0, shieldUntil: 0, buffs: [], cast: null, poison: null, bleed: 0, bleedNext: Infinity, bleedSource: 0 });
           emit(actor, "skill", skill.name, 0, 0, false, [index]);
@@ -227,14 +302,14 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
       }
     }
     const area = enemy.burnAll ?? enemy.slashAll, beam = enemy.bubbleBeam;
-    if (area && at + 1e-8 >= unit.enemyReady && unit.mp >= area.mana && enemies(actor).some(i => inRange(actor, i, PVP_RANGED_RANGE))) {
+    if (area && at + 1e-8 >= unit.enemyReady && unit.mp >= area.mana && enemies(actor).some(i => inRange(actor, i, rangedRange))) {
       unit.mp -= area.mana;
       unit.enemyReady = at + (area.cooldown ?? DEFAULT_ENEMY_AREA_COOLDOWN);
       for (const target of enemies(actor)) strike(actor, target, area.damage, !!enemy.burnAll, "skill", enemy.burnAll ? "Burn All" : "Slash All");
       unit.next = at + actionDuration(stats(actor).speed); return true;
     }
     if (beam && unit.mp >= beam.mana && at >= unit.enemyReady) {
-      const target = enemies(actor).find(i => inRange(actor, i, PVP_RANGED_RANGE));
+      const target = enemies(actor).find(i => inRange(actor, i, rangedRange));
       if (target !== undefined) { unit.mp -= beam.mana; unit.enemyReady = at + beam.cooldown; strike(actor, target, beam.damage, true, "skill", "Bubble Beam"); unit.next = at + actionDuration(stats(actor).speed); return true; }
     }
     return false;
@@ -252,49 +327,154 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
     if (next.at > timeLimit) { at = timeLimit; break; }
     at = next.at;
     if (next.type === "spawn") {
+      if (marchingFormation && !alive(units[next.index].team).length) formationEngaged[1 - units[next.index].team] = false;
       units[next.index].spawned = true;
       if (continuousSeconds && units[next.index].team === 1) {
         // Spawn relative to the travelling party, not its position at the
         // beginning of the checkpoint (which can now be behind the party).
-        units[next.index].x = Math.max(...alive(0).map(index => units[index].x)) + 800 + (units[next.index].fighter.spawnOffset ?? 0);
+        units[next.index].x = Math.max(...alive(0).map(index => units[index].x))
+          + (sharedEncounterDistance ? encounterDistance : 800) + (units[next.index].fighter.spawnOffset ?? 0);
       }
       emit(next.index, "spawn", "Enemy approaches"); continue;
     }
     if (next.type === "move") {
       moveAt += MOVE_TICK;
+      if (unifiedMovement) {
+        const teams = [alive(0), alive(1)];
+        const reaches = units.map((unit, index) => unit.hp > 0 && unit.spawned ? movementReach(index) : 0);
+        let moved = false;
+        const destinations = units.map((unit, index) => {
+          if (!canMove(unit)) return unit.x;
+          const target = enemies(index)[0];
+          const stride = unit.fighter.enemy ? ENEMY_WALK_SPEED * MOVE_TICK : moveDistance;
+          if (target !== undefined) {
+            const gap = units[target].x - unit.x;
+            const remaining = Math.max(0, Math.abs(gap) - reaches[index]);
+            return unit.x + Math.sign(gap) * Math.min(stride, remaining);
+          }
+          if (!adventure || unit.team !== 0) return unit.x;
+          const lead = teams[0][0];
+          const formationX = units[lead].x - (index - lead) * 64;
+          const correction = Math.max(-stride / 2, Math.min(stride / 2, formationX - unit.x));
+          return unit.x + stride + correction;
+        });
+        teams.forEach((team, side) => {
+          const opposing = teams[1 - side];
+          if (!opposing.length) formationEngaged[side] = false;
+          else if (team.some(index => opposing.some(target => inRange(index, target, reaches[index])))) formationEngaged[side] = true;
+          if (formationEngaged[side] || !team.length) return;
+          const direction = side === 0 ? 1 : -1;
+          const before = Math.max(...team.map(index => units[index].x * direction));
+          const after = Math.max(...team.map(index => destinations[index] * direction));
+          const camera = cameraOrigin[side] + cameraTravel[side];
+          const stride = Math.max(0, after - before);
+          const catchUp = Math.min(stride / 2, Math.max(0, after - camera - stride));
+          cameraTravel[side] += stride + catchUp;
+        });
+        units.forEach((unit, index) => {
+          moved ||= destinations[index] !== unit.x;
+          unit.x = destinations[index];
+        });
+        if (moved) emit(alive(0)[0], "move", "Advancing");
+        continue;
+      }
       let moved = false;
+      const paused = pauseFormationDuringCast ? [0, 1].map(team => alive(team).some(index => units[index].cast)) : [];
+      const party = !individualEngagement && (legacyRules ? expedition : adventure) ? alive(0) : [];
+      const front = party.reduce((lead, index) => lead === undefined || units[index].x > units[lead].x ? index : lead, undefined as number | undefined);
+      const nearest = front === undefined ? undefined : enemies(front)[0];
+      let advance = 0;
+      if (front !== undefined && nearest !== undefined && party.every(index => !units[index].cast && units[index].stun <= at + 1e-8)) {
+        if (walkToRange) {
+          const remaining = party.flatMap(index => {
+            const reach = movementReach(index);
+            if (reach === PVP_MELEE_RANGE && protectedBackRow(index)) return [];
+            return [Math.max(0, Math.abs(units[nearest].x - units[index].x) - reach)];
+          });
+          advance = Math.min(moveDistance, ...remaining);
+        } else if (fighters[nearest].stats.range === "range" && party.some(index => fighters[index].stats.range !== "range" && !protectedBackRow(index))) {
+          advance = Math.min(moveDistance, Math.max(0, units[nearest].x - units[front].x - PVP_MELEE_RANGE));
+        }
+      }
+      const travelling = adventure && !alive(1).length && (marchingFormation || !alive(0).some(index => units[index].cast || units[index].stun > at + 1e-8));
+      const regroup = pacedApproach && travelling ? alive(0) : [];
+      const lead = regroup[0];
+      const anchor = (holdRangedPosition ? regroup.find(rangedFormation) : undefined) ?? lead;
+      const formationX = (index: number) => units[anchor].x - (index - anchor) * 64;
+      const regrouping = anchor !== undefined && regroup.some(index => Math.abs(units[index].x - formationX(index)) > 1e-5);
+      const hasMelee = !adventure && holdRangedPosition && units.some((unit, index) =>
+        unit.spawned && unit.hp > 0 && !rangedFormation(index) && !protectedBackRow(index));
+      const march = marchingFormation && (adventure || hasMelee) ? [0, 1].map(team => {
+        if (adventure && team === 1) return undefined;
+        if (!alive(1 - team).length) { formationEngaged[team] = false; return undefined; }
+        if (formationEngaged[team]) return undefined;
+        const ranged = alive(team).filter(index => !fighters[index].enemy && rangedFormation(index));
+        if (!ranged.length) return undefined;
+        const gap = Math.min(...ranged.map(index => Math.abs(units[enemies(index)[0]].x - units[index].x)));
+        const remaining = gap - Math.min(rangedRange, visibleDistance);
+        if (remaining <= 1e-5) { formationEngaged[team] = true; return undefined; }
+        return (team === 0 ? 1 : -1) * Math.min(moveDistance, remaining);
+      }) : [];
+      // Ranged-only duels still need a way to close the opening gap.
+      const holdsPosition = (index: number) => holdRangedPosition && rangedFormation(index)
+        && !fighters[index].enemy && (marchingFormation
+          ? (adventure || hasMelee) && formationEngaged[units[index].team]
+          : adventure ? units[index].team === 0 : hasMelee);
       // Apply both teams' travel from the same frame so the host gets no movement head start.
       const destinations = units.map((unit, index) => {
-        if (unit.hp <= 0 || !unit.spawned || unit.cast || unit.stun > at + 1e-8) return unit.x;
+        if (paused[unit.team] || !canMove(unit)) return unit.x;
         if (adventure && unit.team === 0) {
-          const travelling = !alive(1).length && !alive(0).some(index => units[index].cast || units[index].stun > at + 1e-8);
-          if (travelling) { moved = true; return unit.x + PVP_WALK_SPEED * MOVE_TICK; }
-          return unit.x;
+          if (advance > 1e-7) { moved = true; return unit.x + advance; }
+          if (travelling) {
+            const distance = regrouping ? formationX(index) - unit.x : moveDistance;
+            // Keep marching while separated members adjust their pace to close formation.
+            const travel = marchingFormation && regrouping
+              ? moveDistance + Math.max(-moveDistance / 2, Math.min(moveDistance / 2, distance))
+              : Math.sign(distance) * Math.min(moveDistance, Math.abs(distance));
+            if (travel) moved = true;
+            return unit.x + travel;
+          }
+          if (!individualEngagement) return unit.x;
         }
         const target = enemies(index)[0];
-        if (target === undefined) return unit.x;
-        if (protectedBackRow(index) && unit.fighter.stats.range !== "range") return unit.x;
-        let reach = basicRange(index);
-        const native = unit.fighter.enemy;
-        const area = native?.burnAll ?? native?.slashAll;
-        if ((native?.bubbleBeam && unit.mp >= native.bubbleBeam.mana) || (native?.skill?.kind === "shot" && unit.mp >= native.skill.mana) || (area && at + 1e-8 >= unit.enemyReady && unit.mp >= area.mana)) reach = Math.max(reach, PVP_RANGED_RANGE);
-        const definitions = unit.fighter.weapon ? skills[unit.fighter.weapon] : [];
-        for (const slot of [0, 1]) {
-          const skill = definitions[slot];
-          if (skill && !skill.passive && (slot === 0 || activeSkill2(unit.fighter)) && unit.mp >= skill.mpCost && unit.hp > skill.hpCost && at >= unit.ready[slot] && rangedSkills.has(skill.id)) reach = Math.max(reach, skillRange(skill));
-        }
+        const marchStep = march[unit.team];
+        if (marchStep !== undefined && !unit.fighter.enemy) { moved = true; return unit.x + marchStep; }
+        if (target === undefined || holdsPosition(index)) return unit.x;
+        if (protectedBackRow(index) && !rangedFormation(index)) return unit.x;
         const distance = units[target].x - unit.x;
-        const travel = Math.min(PVP_WALK_SPEED * MOVE_TICK, Math.max(0, Math.abs(distance) - reach) / (adventure ? 1 : 2));
+        const stepDistance = pacedApproach && (unit.fighter.enemy || (adventure && unit.team === 1)) ? ENEMY_WALK_SPEED * MOVE_TICK : moveDistance;
+        const reach = holdRangedPosition && !unit.fighter.enemy && (!adventure || unit.team === 0)
+          ? rangedFormation(index) ? rangedRange : PVP_MELEE_RANGE
+          : movementReach(index);
+        const travel = Math.min(stepDistance, Math.max(0, Math.abs(distance) - reach) / (adventure || individualEngagement ? 1 : 2));
         if (travel > 1e-7) moved = true;
         return unit.x + Math.sign(distance) * travel;
       });
+      if (walkToRange && (!adventure || individualEngagement)) {
+        // Protected back slots follow the front when their own movement has stopped.
+        const frontTravel = [0, 1].map(team => {
+          const direction = team === 0 ? 1 : -1;
+          return direction * Math.max(0, ...alive(team).filter(index => !fighters[index].backRow)
+            .map(index => (destinations[index] - units[index].x) * direction));
+        });
+        units.forEach((unit, index) => {
+          if (paused[unit.team] || !canMove(unit) || destinations[index] !== unit.x || !protectedBackRow(index) || holdsPosition(index)) return;
+          const target = enemies(index)[0];
+          const reach = mobileSpearThrow && unit.fighter.weapon === "spear" ? basicRange(index) : movementReach(index);
+          if (target !== undefined && !inRange(index, target, reach)) destinations[index] += frontTravel[unit.team];
+        });
+      }
       units.forEach((unit, index) => { unit.x = destinations[index]; });
       if (moved) emit(alive(0)[0], "move", "Advancing");
       continue;
     }
     if (next.type === "mana") {
       manaAt += 1;
-      units.forEach((unit) => { if (unit.hp > 0 && !unit.fighter.enemy) unit.mp = Math.min(unit.fighter.stats.mp, unit.mp + (adventure && unit.team === 0 && unit.fighter.backRow ? 10 : 5)); });
+      units.forEach(unit => {
+        if (unit.hp <= 0 || unit.fighter.enemy || (unifiedMovement && !unit.spawned)) return;
+        const restored = legacyRules ? (adventure && unit.team === 0 && unit.fighter.backRow ? 10 : 5) : MANA_REGEN_PER_SECOND;
+        unit.mp = Math.min(unit.fighter.stats.mp, unit.mp + restored);
+      });
       emit(0, "mana", "Mana regeneration"); continue;
     }
     if (next.type === "expiry") { buff(next.index); emit(next.index, "buff", "Buff expired"); continue; }
@@ -308,7 +488,16 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
       else unit.bleedNext += 1;
       continue;
     }
-    if (unit.cast) { finish(next.index); continue; }
+    if (unit.cast) {
+      const before = steps.length, isSpearThrow = unit.cast.skill.id === "throw-spear";
+      finish(next.index);
+      if ((unifiedMovement || pauseFormationDuringCast || spearCastCamera && isSpearThrow) && before === steps.length) emit(next.index, "move", "Cast ended");
+      continue;
+    }
+    if (Number.isFinite(visibleDistance) && !enemies(next.index).some(target => inRange(next.index, target, visibleDistance))) {
+      unit.next = moveAt;
+      continue;
+    }
     if (enemyAction(next.index)) continue;
     const definitions = unit.fighter.weapon ? skills[unit.fighter.weapon] : [];
     const skill2 = definitions[1];
@@ -345,6 +534,8 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
       cast: unit.cast ? { ...unit.cast, ends: Math.max(0, unit.cast.ends - at) } : null,
       poison: unit.poison ? { until: unit.poison.until - at, next: unit.poison.next - at, sourceId: fighters[unit.poison.source].id } : null,
       bleed: unit.bleed, bleedNext: unit.bleed ? Math.max(0, unit.bleedNext - at) : 0, bleedSourceId: fighters[unit.bleedSource]?.id,
+      ...(marchingFormation && formationEngaged[unit.team] && alive(1 - unit.team).length ? { formationEngaged: true } : {}),
+      ...(unifiedMovement ? { cameraWorld: cameraOrigin[unit.team] + cameraTravel[unit.team] } : {}),
     },
   })) : undefined;
   return { fighters: fighters.map((fighter, index) => ({ ...fighter, startX: initialPositions[index] })), steps, duration: at, winnerId: winner < 0 ? null : owners[winner], ...(continuation ? { continuation } : {}) };

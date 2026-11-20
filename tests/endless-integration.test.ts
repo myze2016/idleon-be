@@ -7,6 +7,7 @@ import { app } from "../src/app.js";
 import { prisma } from "../src/lib/prisma.js";
 import { env } from "../src/config/env.js";
 import { hashPassword } from "../src/utils/password.js";
+import { COMBAT_ENCOUNTER_DISTANCE } from "../src/services/pvp-battle.service.js";
 
 test("Endless admin controls, verified distance and continuous spawns, snapshots, idempotency, defeat and seasonal rankings", async () => {
   const passwordHash = await hashPassword("Test123!");
@@ -42,6 +43,7 @@ test("Endless admin controls, verified distance and continuous spawns, snapshots
     assert.equal(wave.pending.enemyType, "slime");
     assert.equal(wave.pending.result.duration, 12);
     const enemies = wave.pending.result.fighters.filter((fighter: { enemyType?: string }) => fighter.enemyType);
+    assert.equal(enemies[0].startX - wave.pending.result.fighters[0].startX, COMBAT_ENCOUNTER_DISTANCE);
     const spawnTimes = [...new Set<number>(enemies.map((fighter: { spawnAt: number }) => fighter.spawnAt))];
     assert.equal(spawnTimes[0], 0);
     for (const [index, at] of spawnTimes.entries()) {
@@ -92,8 +94,11 @@ test("Endless admin controls, verified distance and continuous spawns, snapshots
     const loser = (await post(two, "start", { teamIds: [second.id], requestKey: randomUUID() }).expect(200)).body.data;
     const loss = (await post(two, `${loser.id}/wave`).expect(200)).body.data;
     assert.notEqual(loss.pending.result.winnerId, "endless-two");
-    await finish(loser.id);
-    const ended = (await post(two, `${loser.id}/resolve`, { wave: 1 }).expect(200)).body.data;
+    let ended = loss;
+    for (let checkpoints = 0; ended.status === "active" && checkpoints < 6; checkpoints++) {
+      await finish(loser.id);
+      ended = (await post(two, `${loser.id}/resolve`, { wave: ended.wave }).expect(200)).body.data;
+    }
     assert.equal(ended.status, "defeated"); assert.ok(ended.distance > 0);
     assert.equal(await prisma.endlessScore.count({ where: { userId: "endless-two" } }), 1);
     await save(newer.version, { ...laterSettings, enabled: false }).expect(200);

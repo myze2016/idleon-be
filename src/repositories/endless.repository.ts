@@ -8,8 +8,8 @@ import { defaultBalance, normalizeBalance } from "../services/balance.service.js
 import { effectiveStats } from "../models/artifact.js";
 import { enemies, defaultEnemies, type EnemyType } from "../models/enemy.js";
 import type { WeaponType } from "../models/character.js";
-import type { DuelFighter, DuelResult } from "../services/pvp-battle.service.js";
-import { hasActiveSkill2, latestSkill2Change, replayCombat, type LiveCombat } from "../services/live-combat.js";
+import { COMBAT_ENCOUNTER_DISTANCE, type DuelFighter, type DuelResult } from "../services/pvp-battle.service.js";
+import { hasActiveSkill2, latestSkill2Change, LIVE_COMBAT_RULES_VERSION, liveSkill2Controls, replayCombat, type LiveCombat } from "../services/live-combat.js";
 import { HttpError } from "../utils/http-error.js";
 
 type Pending = { enemyType: EnemyType | null; result: DuelResult; nextSpawnIn?: number; live?: Omit<LiveCombat, "balance"> };
@@ -36,8 +36,7 @@ function state(run: EndlessRun | null) {
   if (!run) return null;
   const pending = run.pending as unknown as Pending | null;
   const live = pending?.live;
-  const skill2 = live?.fighters.filter(fighter => fighter.userId === run.userId && hasActiveSkill2(fighter, run.balance as unknown as BalanceConfig))
-    .map(fighter => ({ id: fighter.id, name: fighter.name, enabled: latestSkill2Change(live.changes, fighter.id)?.enabled ?? fighter.skill2Enabled !== false }));
+  const skill2 = live && liveSkill2Controls(run.userId, { ...live, balance: run.balance as unknown as BalanceConfig });
   return { id: run.id, season: run.season, status: run.status, wave: run.wave, bestWave: run.bestWave,
     distance: run.bestWave, team: (run.team as unknown as DuelFighter[]).filter(member => member.userId === run.userId), settings: run.settings as unknown as EndlessConfig,
     pending: pending && { enemyType: pending.enemyType, result: pending.result, nextSpawnIn: pending.nextSpawnIn },
@@ -89,7 +88,10 @@ export async function prepareEndlessWave(userId: string, id: string) {
     if (run.status !== "active" || run.pending) return state(run);
     const settings = run.settings as unknown as EndlessConfig, balance = run.balance as unknown as BalanceConfig;
     const team = run.team as unknown as DuelFighter[];
-    const front = Math.max(400, ...team.filter(member => member.userId === userId && (member.hp ?? member.stats.hp) > 0).map(member => member.startX ?? 400));
+    const party = team.filter(member => member.userId === userId);
+    const livingPositions = party.flatMap((member, slot) => (member.hp ?? member.stats.hp) > 0
+      ? [member.startX ?? 60 + (party.length - 1 - slot) * 64] : []);
+    const front = livingPositions.length ? Math.max(...livingPositions) : 400;
     const incoming: DuelFighter[] = [];
     const capacity = Math.max(0, 40 - team.filter(member => member.userId !== userId).length);
     let spawnAt = (settings as EndlessConfig & { spawnDelay?: number }).spawnDelay ?? 0;
@@ -100,10 +102,10 @@ export async function prepareEndlessWave(userId: string, id: string) {
         const type = settings.enemyPool[randomInt(settings.enemyPool.length)];
         const enemy = withBalance(balance, () => enemies[type]);
         const stats = endlessDistanceStats(balance.enemies[type], run.bestWave + at * ENDLESS_METERS_PER_SECOND, settings.statMultiplier);
-        incoming.push({ id: `endless-${run.wave}-${incoming.length}`, userId: `enemy:${userId}`, name: enemy.name, enemyType: type, enemy: stats, stats, startX: front + 800 + member * 72, spawnOffset: member * 72, spawnAt: at });
+        incoming.push({ id: `endless-${run.wave}-${incoming.length}`, userId: `enemy:${userId}`, name: enemy.name, enemyType: type, enemy: stats, stats, startX: front + COMBAT_ENCOUNTER_DISTANCE + member * 72, spawnOffset: member * 72, spawnAt: at });
       }
     }
-    const live = { seed: randomBytes(24).toString("hex"), fighters: [...team, ...incoming], changes: [] };
+    const live: Pending["live"] = { seed: randomBytes(24).toString("hex"), fighters: [...team, ...incoming], changes: [], rulesVersion: LIVE_COMBAT_RULES_VERSION };
     const result = replayCombat({ ...live, balance }, ENDLESS_CHECKPOINT_SECONDS);
     const updated = await tx.endlessRun.update({ where: { id }, data: { pending: json({ enemyType: incoming[0]?.enemyType ?? team.find(member => member.enemyType)?.enemyType ?? null, result, nextSpawnIn: spawnAt - ENDLESS_CHECKPOINT_SECONDS, live }), readyAt: new Date(Date.now() + playbackMs(result.duration)) } });
     return state(updated);

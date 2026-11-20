@@ -36,7 +36,7 @@ test("artifacts cost 500 gold, equip one per owned character, persist, and affec
       const battle = await agent.post(`/api/encounters/${spawn.body.data.id}/resolve`).set("Origin", env.corsOrigin).expect(200);
       assert.deepEqual(battle.body.data.initialTeamHp, [expected.hp]);
       assert.deepEqual(battle.body.data.initialTeamMp, [expected.mp]);
-      assert.equal(battle.body.data.steps.find((step: { actor: string }) => step.actor === "team").damage, expected.atk);
+      assert.equal(battle.body.data.steps.find((step: { actor: string; kind: string }) => step.actor === "team" && step.kind === "attack")?.damage, expected.atk);
     }
   }
   assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).gold < 500, true);

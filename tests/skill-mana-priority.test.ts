@@ -6,7 +6,7 @@ import { baseStats } from "../src/models/character-stats.js";
 import { savesManaForSkill2, skills } from "../src/models/skills.js";
 
 test("Juan saves mana for ready Freeze All, uses basics while saving, and casts Freeze during its cooldown", () => {
-  const battle = simulateGroupBattle([{ id: "juan", weapon: "ice-staff", skill2Unlocked: true, mp: 20, stats: { ...baseStats["ice-staff"], hp: 1000 } }], [{ ...baseStats.axe, hp: 10000, atk: 1, mp: 0 }], () => 0.99);
+  const battle = simulateGroupBattle([{ id: "juan", weapon: "ice-staff", skill2Unlocked: true, mp: 26, stats: { ...baseStats["ice-staff"], hp: 1000 } }], [{ ...baseStats.axe, hp: 10000, atk: 1, mp: 0 }], () => 0.99);
   const casts = battle.steps.filter((step) => step.kind === "cast");
   assert.equal(casts[0].label, "Casting Freeze All");
   assert.equal(casts[0].at, 2);

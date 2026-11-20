@@ -10,7 +10,7 @@ export interface BattleStep {
   kind?: "attack" | "cast" | "skill" | "heal" | "buff" | "poison" | "block" | "counter" | "double" | "mana" | "bleed";
   label?: string; teamMp?: number[]; healing?: number; castEndsAt?: number; targetIds?: string[]; critical?: boolean;
   teamCasting?: ({ name: string; startedAt: number; endsAt: number } | null)[];
-  enemyIndex?: number; enemyHps?: number[];
+  enemyIndex?: number; enemyHps?: number[]; enemyMps?: number[];
 }
 
 export function simulateGroupBattle(team: Fighter[], enemies: CharacterStats[], random?: () => number) {

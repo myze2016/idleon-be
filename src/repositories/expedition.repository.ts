@@ -1,11 +1,16 @@
 import { initialGarnalandProgress, garnalandSpecial, advanceGarnaland, type GarnalandProgress } from "../models/garnaland.js";
-import { randomInt } from "node:crypto";
+import { randomBytes, randomInt } from "node:crypto";
 import { prisma } from "../lib/prisma.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { enemies, encounterPool, harborPeriod, enemyRewards, type EnemyType, type Location } from "../models/enemy.js";
 import { effectiveStats, artifactDrops } from "../models/artifact.js";
 import type { WeaponType } from "../models/character.js";
-import { simulateExpeditionBattle } from "../services/expedition-battle.service.js";
+import { expeditionFighters, replayExpedition, simulateExpeditionBattle } from "../services/expedition-battle.service.js";
+import { hasActiveSkill2, latestSkill2Change, liveCombatDistances, LIVE_COMBAT_RULES_VERSION, liveSkill2Controls, type LiveCombat } from "../services/live-combat.js";
+import { currentBalance, withBalance } from "../models/balance-context.js";
+import { defaultBalance } from "../services/balance.service.js";
+import { COMBAT_ENCOUNTER_DISTANCE, PVP_MELEE_RANGE } from "../services/pvp-battle.service.js";
+import { MANA_REGEN_PER_SECOND } from "../models/action-timing.js";
 import { HttpError } from "../utils/http-error.js";
 import { accountProgress, levelUpReward } from "../models/account-progress.js";
 import { questDrops } from "../models/quest-item.js";
@@ -81,7 +86,41 @@ export async function spawnEncounter(userId: string, ids: string[], location: Lo
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
 }
 
-export async function resolveEncounters(userId: string, ids: string[], lootRoll?: () => number, artifactRoll?: () => number) {
+interface ExpeditionCombat extends LiveCombat { encounterIds: string[]; startedAt: number; duration: number }
+
+function expeditionPlayback(live: ExpeditionCombat, battle = replayExpedition(live)) {
+  return {
+    steps: battle.steps, won: battle.won, skill2: liveSkill2Controls("team", live),
+    movement: battle.movement, meleeRange: PVP_MELEE_RANGE, rangedRange: liveCombatDistances(live.rulesVersion).rangedRange,
+    initialTeamHp: live.fighters.filter(fighter => fighter.userId === "team").map(fighter => fighter.hp ?? fighter.stats.hp),
+    initialTeamMp: live.fighters.filter(fighter => fighter.userId === "team").map(fighter => fighter.mp ?? fighter.stats.mp),
+    enemies: withBalance(live.balance, () => battle.summoned.map(summon => ({
+      id: `summon-${live.encounterIds[0]}-${summon.index}`, summoned: true, ...enemyRewards(summon.type),
+    }))),
+  };
+}
+
+export async function toggleExpeditionSkill2(userId: string, encounterId: string, fighterId: string, enabled: boolean) {
+  return prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+    const encounter = await tx.encounter.findFirst({ where: { id: encounterId, userId } });
+    const live = encounter?.liveCombat as unknown as ExpeditionCombat | undefined;
+    if (!live || encounter?.result) throw new HttpError(409, "This expedition fight has ended");
+    const fighter = live.fighters.find(member => member.userId === "team" && member.id === fighterId);
+    if (!fighter || !hasActiveSkill2(fighter, live.balance)) throw new HttpError(400, "Choose a fighter with an unlocked active Skill 2");
+    if ((latestSkill2Change(live.changes, fighterId)?.enabled ?? fighter.skill2Enabled !== false) === enabled) return expeditionPlayback(live);
+    const at = Math.max(0, (Date.now() - live.startedAt) / 1000 + 0.25, live.changes.at(-1)?.at ?? 0);
+    if (at >= live.duration) throw new HttpError(409, "This expedition fight is ending");
+    if (live.changes.length >= 120) throw new HttpError(409, "This fight has reached its Skill 2 change limit");
+    live.changes.push({ fighterId, at, enabled });
+    const battle = replayExpedition(live);
+    live.duration = battle.duration;
+    await tx.encounter.update({ where: { id: encounterId }, data: { liveCombat: live as unknown as Prisma.InputJsonValue } });
+    return expeditionPlayback(live, battle);
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+}
+
+export async function resolveEncounters(userId: string, ids: string[], lootRoll?: () => number, artifactRoll?: () => number, prepare?: { disabledSkill2Ids: string[] }) {
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
     const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
@@ -89,6 +128,7 @@ export async function resolveEncounters(userId: string, ids: string[], lootRoll?
     if (records.length !== ids.length) throw new HttpError(404, "Encounter not found");
     const encounters = ids.map((id) => records.find((record) => record.id === id)!);
     if (encounters.some((encounter) => encounter.result)) {
+      if (prepare) throw new HttpError(409, "This expedition fight has already ended");
       const battleId = encounters[0].battleId ?? encounters[0].id;
       if (encounters.some((encounter) => !encounter.result || (encounter.battleId ?? encounter.id) !== battleId)) throw new HttpError(409, "Encounter already resolved");
       const leader = await tx.encounter.findFirst({ where: { id: battleId, userId } });
@@ -96,21 +136,47 @@ export async function resolveEncounters(userId: string, ids: string[], lootRoll?
         garnalandUnlocked: user.garnalandUnlocked, deepSeaFloor: user.deepSeaFloor,
         progression: accountProgress(user.experience), tourneyProgress: { defeated: user.tourneyDefeats, target: user.tourneyBossAt }, harborProgress: { defeated: user.harborDefeats, target: user.harborBossAt }, meadowProgress: { defeated: user.meadowDefeats, target: user.meadowBossAt }, forestProgress: { defeated: user.forestDefeats, target: user.forestBossAt } };
     }
+    const active = await tx.encounter.findFirst({ where: { userId, liveCombat: { not: Prisma.DbNull } }, select: { liveCombat: true } });
+    const live = active?.liveCombat as unknown as ExpeditionCombat | undefined;
+    if (live && (ids.length !== live.encounterIds.length || ids.some((id, index) => id !== live.encounterIds[index]))) throw new HttpError(409, "Finish the current expedition fight first");
+    if (prepare && live) return expeditionPlayback(live);
+    if (live && Date.now() < live.startedAt + live.duration * 1000) throw new HttpError(409, "This expedition fight is still in progress");
     const teamIds = encounters[0].teamIds as string[];
     if (encounters.some((encounter) => encounter.location !== encounters[0].location || JSON.stringify(encounter.teamIds) !== JSON.stringify(teamIds))) throw new HttpError(400, "Battle monsters from the same location and team");
     const owned = await tx.character.findMany({ where: { userId, id: { in: teamIds } }, include: { artifact: true } });
     if (owned.length !== teamIds.length) throw new HttpError(409, "Your team changed. Return to the room.");
-    const vitals = (user.expeditionVitals ?? {}) as Record<string, { hp: number; mp: number }>;
-    const fighters = teamIds.map((id) => {
+    const vitals = (user.expeditionVitals ?? {}) as Record<string, { hp: number; mp: number; manaRestingAt?: number }>;
+    const now = Date.now();
+    const fighters = live?.fighters.filter(fighter => fighter.userId === "team") ?? teamIds.map((id) => {
       const character = owned.find((member) => member.id === id)!;
       const weapon = character.weapon.replaceAll("_", "-") as WeaponType;
       const stats = effectiveStats(weapon, character.artifact, character.upgradeLevel);
       const slot = Array.isArray(user.teamSlots) ? user.teamSlots.indexOf(id) : -1;
-      return { id, weapon, backRow: slot >= 3, skill2Unlocked: character.skill2Unlocked, stats, hp: Math.min(stats.hp, vitals[id]?.hp ?? stats.hp), mp: Math.min(stats.mp, vitals[id]?.mp ?? stats.mp) };
+      const saved = vitals[id];
+      const hp = Math.min(stats.hp, saved?.hp ?? stats.hp);
+      const restSeconds = prepare && hp > 0 && saved?.manaRestingAt !== undefined ? Math.max(0, Math.floor((now - saved.manaRestingAt) / 1000)) : 0;
+      const mp = Math.min(stats.mp, (saved?.mp ?? stats.mp) + restSeconds * MANA_REGEN_PER_SECOND);
+      return { id, name: character.name, weapon, backRow: slot >= 3, skill2Unlocked: character.skill2Unlocked, stats, hp, mp };
     });
-    if (fighters.every((fighter) => fighter.hp <= 0)) throw new HttpError(409, "Your team is defeated. Return to the room.");
+    if (fighters.every((fighter) => (fighter.hp ?? fighter.stats.hp) <= 0)) throw new HttpError(409, "Your team is defeated. Return to the room.");
     const types = encounters.map((encounter) => encounter.enemyType as EnemyType);
-    const battle = simulateExpeditionBattle(fighters, encounters.map(({ id }, index) => ({ id, type: types[index] })));
+    const opponents = encounters.map(({ id }, index) => ({ id, type: types[index] }));
+    if (prepare) {
+      const balance = currentBalance() ?? defaultBalance();
+      const combat: ExpeditionCombat = {
+        encounterIds: ids, seed: randomBytes(24).toString("hex"), balance, changes: [], duration: 0, startedAt: 0, rulesVersion: LIVE_COMBAT_RULES_VERSION,
+        fighters: expeditionFighters(fighters, opponents, COMBAT_ENCOUNTER_DISTANCE),
+      };
+      for (const fighter of combat.fighters) {
+        if (fighter.userId === "team" && prepare.disabledSkill2Ids.includes(fighter.id) && hasActiveSkill2(fighter, balance)) fighter.skill2Enabled = false;
+      }
+      const preview = replayExpedition(combat);
+      combat.duration = preview.duration;
+      combat.startedAt = Date.now() - Math.min(1000, (preview.steps[0]?.at ?? 0) * 1000);
+      await tx.encounter.update({ where: { id: ids[0] }, data: { liveCombat: combat as unknown as Prisma.InputJsonValue } });
+      return expeditionPlayback(combat, preview);
+    }
+    const battle = live ? replayExpedition(live) : simulateExpeditionBattle(fighters, opponents);
     const originalCount = encounters.length;
     for (const summon of battle.summoned) {
       const record = await tx.encounter.create({ data: { userId, teamIds, location: encounters[0].location, enemyType: summon.type, battleId: ids[0], result: { battleId: ids[0] } } });
@@ -161,7 +227,8 @@ export async function resolveEncounters(userId: string, ids: string[], lootRoll?
     const tourneyKills = encounters.filter((encounter, i) => encounter.location === "tourney" && !enemyRewards(encounter.enemyType as EnemyType).boss && battle.enemyHps[i] <= 0).length;
     const tourneyDefeats = zugwangWon ? 0 : user.tourneyDefeats + tourneyKills;
     const tourneyBossAt = zugwangWon ? randomInt(50, 71) : user.tourneyBossAt;
-    const result = { ...battle, initialTeamHp: fighters.map((fighter) => fighter.hp), initialTeamMp: fighters.map((fighter) => fighter.mp), goldEarned, wishEarned, levelsGained, expEarned, encounterIds: encounters.map((encounter) => encounter.id),
+    const rest = live ? { manaRestingAt: Date.now(), manaRegenPerSecond: MANA_REGEN_PER_SECOND } : undefined;
+    const result = { ...battle, ...rest, initialTeamHp: fighters.map((fighter) => fighter.hp), initialTeamMp: fighters.map((fighter) => fighter.mp), goldEarned, wishEarned, levelsGained, expEarned, encounterIds: encounters.map((encounter) => encounter.id),
       deepSeaFloor, deepSeaJustUnlocked: deepSeaFloor > user.deepSeaFloor, ...(isDeepSea(deepLocation) ? { deepSeaProgress: deepProgress[deepLocation] } : {}),
       garnalandProgress: encounters[0].location === "garnaland" ? deepProgress.garnaland : undefined,
       garnalandUnlocked, garnalandJustUnlocked: !user.garnalandUnlocked && garnalandUnlocked,
@@ -169,8 +236,8 @@ export async function resolveEncounters(userId: string, ids: string[], lootRoll?
     const battleId = encounters[0].id;
     const claimed = await tx.encounter.updateMany({ where: { id: { in: ids }, userId, result: { equals: Prisma.DbNull } }, data: { battleId, result: { battleId } } });
     if (claimed.count !== ids.length) throw new HttpError(409, "Encounter already resolved");
-    await tx.encounter.update({ where: { id: battleId }, data: { result: result as unknown as Prisma.InputJsonValue } });
-    fighters.forEach((fighter, index) => { vitals[fighter.id] = { hp: battle.teamHp[index], mp: battle.teamMp[index] }; });
+    await tx.encounter.update({ where: { id: battleId }, data: { result: result as unknown as Prisma.InputJsonValue, liveCombat: Prisma.DbNull } });
+    fighters.forEach((fighter, index) => { vitals[fighter.id] = { hp: battle.teamHp[index], mp: battle.teamMp[index], ...(rest ? { manaRestingAt: rest.manaRestingAt } : {}) }; });
     const updated = await tx.user.update({ where: { id: userId }, data: {
       gold: { increment: goldEarned }, wishCurrency: { increment: wishEarned }, experience: { increment: expEarned }, tourneyDefeats, tourneyBossAt, harborDefeats, harborBossAt, meadowDefeats, meadowBossAt, forestDefeats, forestBossAt,
       expeditionVitals: vitals, deepSeaProgress: deepProgress as Prisma.InputJsonValue, deepSeaFloor,

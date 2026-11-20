@@ -11,6 +11,8 @@ import { endlessAdminRouter } from "./endless.routes.js";
 import { wishGrantsRouter } from "./wish-grants.routes.js";
 import { accountGrantsRouter } from "./account-grants.routes.js";
 import { accountProgress } from "../models/account-progress.js";
+import { realtimeBus } from "../services/realtime-bus.js";
+import { pvpPhase } from "../repositories/pvp.repository.js";
 
 export const adminRouter = Router();
 adminRouter.use(requireAuth);
@@ -33,8 +35,40 @@ adminRouter.get("/donation-tiers", async (req, res) => {
   if (req.query.search !== undefined && (typeof req.query.search !== "string" || req.query.search.length > 100)) throw new HttpError(400, "Enter a valid username");
   const search = String(req.query.search ?? "").trim();
   const users = await prisma.user.findMany({ where: search ? { OR: [{ id: search }, { name: { contains: search, mode: "insensitive" } }, { username: { contains: search, mode: "insensitive" } }, { characters: { some: { name: { contains: search, mode: "insensitive" } } } }] } : {},
-    take: 20, orderBy: { username: "asc" }, select: { id: true, username: true, name: true, donationTier: true, wishCurrency: true, gold: true, experience: true, characters: { select: { id: true, name: true }, orderBy: { name: "asc" } } } });
+    take: 20, orderBy: { username: "asc" }, select: { id: true, username: true, name: true, role: true, donationTier: true, wishCurrency: true, gold: true, experience: true, characters: { select: { id: true, name: true }, orderBy: { name: "asc" } } } });
   res.json({ data: { maxLevel: accountProgress(2147483647).level, users: users.map(user => ({ ...user, level: accountProgress(user.experience).level })) } });
+});
+adminRouter.delete("/users/:id", async (req, res) => {
+  const userId = String(req.params.id), username = req.body?.username;
+  if (!userId || userId.length > 30 || typeof username !== "string" || !username || username.length > 100) {
+    throw new HttpError(400, "Enter the exact username to confirm deletion");
+  }
+  try {
+    const deleted = await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+      const user = await tx.user.findUnique({ where: { id: userId }, select: { role: true, username: true } });
+      if (!user) throw new HttpError(404, "Account not found");
+      if (user.role === "admin") throw new HttpError(403, "Administrator accounts cannot be deleted here");
+      if (user.username !== username) throw new HttpError(400, "The confirmation username does not match");
+
+      const rooms = await tx.pvpRoom.findMany({ where: { OR: [{ hostId: userId }, { guestId: userId }] },
+        select: { code: true, guestId: true, status: true, startsAt: true, result: true, expiresAt: true } });
+      const activeGuestRooms = rooms.filter(room => room.guestId === userId && ["waiting", "countdown", "battle"].includes(pvpPhase(room))).map(room => room.code);
+      if (activeGuestRooms.length) await tx.pvpRoom.updateMany({ where: { code: { in: activeGuestRooms }, guestId: userId, status: { in: ["waiting", "started"] } }, data: { status: "canceled" } });
+      await tx.user.delete({ where: { id: userId } });
+      const sessions = await tx.$queryRaw<{ id: string }[]>`DELETE FROM sessions WHERE data::jsonb #>> '{user,id}' = ${userId} RETURNING id`;
+      return { sessions, rooms };
+    });
+    for (const { id } of deleted.sessions) realtimeBus.publish({ kind: "session-ended", sessionId: id });
+    for (const { code } of deleted.rooms) realtimeBus.publish({ kind: "pvp", code });
+    if (deleted.rooms.length) realtimeBus.publish({ kind: "pvp-lobby" });
+    res.sendStatus(204);
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
+      throw new HttpError(409, "This account has linked payment, support, or admin history that must be retained");
+    }
+    throw error;
+  }
 });
 adminRouter.patch("/users/:id/donation-tier", async (req, res) => {
   const tier = req.body?.tier;
