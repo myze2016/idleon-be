@@ -61,6 +61,7 @@ function expeditionResult(result: DuelResult, team: Fighter[], opponentCount: nu
       kind: step.kind, label: step.label, damage: step.damage, healing: step.healing, critical: step.critical,
       enemyIndex, enemyHp: enemyHps[0], enemyHps, enemyMps: step.mp.slice(teamSize), teamHp: step.hp.slice(0, teamSize), teamMp: step.mp.slice(0, teamSize),
       teamCasting: step.teamCasting, castEndsAt: step.kind === "cast" && member !== undefined ? step.teamCasting?.[member]?.endsAt : undefined,
+      ...(step.statuses ? { statuses: step.statuses } : {}),
       targetIds: step.targets.filter(target => target < teamSize).map(target => team[target].id),
     }];
   });

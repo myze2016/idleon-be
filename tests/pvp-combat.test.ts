@@ -26,11 +26,14 @@ test("PvP ties do not always favor the room host and defensive stalemates end as
 test("Both duelists can cast, regenerate mana, apply statuses, and use unlocked skills", () => {
   const frost = simulateDuel([fighter("ice", "ice-staff", true, { hp: 1000 }), fighter("rifle", "rifle", true, { hp: 1000 })], () => 0.99);
   assert.ok(frost.steps.some((step) => step.label === "Freeze All"));
+  assert.ok(frost.steps.some((step) => step.label === "Freeze All" && ((step.statuses?.[1] ?? 0) & 4) !== 0));
   assert.ok(frost.steps.some((step) => step.label === "Long Shot"));
   assert.ok(frost.steps.some((step) => step.kind === "mana"));
   const bleed = simulateDuel([fighter("axe", "dual-axe", true, { hp: 1000 }), fighter("bow", "bow", true, { hp: 1000 })], () => 0.99);
   assert.ok(bleed.steps.some((step) => step.kind === "bleed"));
   assert.ok(bleed.steps.some((step) => step.kind === "poison"));
+  assert.ok(bleed.steps.some((step) => step.kind === "attack" && step.actor === 1 && ((step.statuses?.[0] ?? 0) & 1) !== 0));
+  assert.ok(bleed.steps.some((step) => step.kind === "attack" && step.actor === 0 && ((step.statuses?.[1] ?? 0) & 2) !== 0));
   assert.ok(bleed.steps.some((step) => step.label === "Axe Frenzy"));
   assert.ok(bleed.steps.some((step) => step.label.startsWith("Shackle")));
   const shield = simulateDuel([fighter("shield", "sword-and-shield", true), fighter("axe", "axe")], () => 0);

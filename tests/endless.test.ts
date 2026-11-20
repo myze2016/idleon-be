@@ -158,3 +158,23 @@ test("Endless resumes marching after a kill and marches into range of the next s
   assert.ok(resumed.x[0] - resumed.x[1] < kill.x[0] - kill.x[1]);
   assert.ok(approach.x[0] > secondSpawn.x[0] && approach.x[1] > secondSpawn.x[1]);
 });
+
+test("Endless runs the remaining spawn clock at three quarters speed only while the battlefield is empty", () => {
+  const stats = { ...defaultEnemies.slime.stats, atk: 100, hp: 1000 };
+  const hero = { id: "hero", name: "Hero", userId: "player", stats, startX: 400 };
+  const slime = { id: "slime", name: "Slime", userId: "enemy", enemyType: "slime" as const, stats: defaultEnemies.slime.stats, enemy: defaultEnemies.slime.stats, startX: 460 };
+  const arrivals = [{ ...slime, id: "first", spawnAt: 10 }, { ...slime, id: "second", spawnAt: 10, spawnOffset: 72 }];
+  const options = { endlessSpawns: { scheduleEnd: 20, distance: 420, statMultiplier: 2 } };
+  const empty = simulateDuel([hero, ...arrivals], () => .99, 12, options);
+  const spawnTimes = empty.steps.filter(step => step.kind === "spawn").map(step => step.at);
+  assert.equal(spawnTimes.length, 2);
+  assert.equal(spawnTimes[0], spawnTimes[1]);
+  assert.ok(Math.abs(spawnTimes[0] - 7.5) < 1e-8);
+  assert.equal(empty.fighters[1].stats.hp, 40, "enemy scales at actual spawn distance");
+  const mixed = simulateDuel([hero, slime, ...arrivals], () => .99, 12, options);
+  const kill = mixed.steps.find(step => step.actor === 0 && step.targets.includes(1) && step.hp[1] === 0)!;
+  const next = mixed.steps.find(step => step.kind === "spawn")!;
+  assert.ok(Math.abs(next.at - (kill.at + (10 - kill.at) * 0.75)) < 1e-8);
+  const checkpoint = simulateDuel([hero, ...arrivals], () => .99, 4, options);
+  assert.ok(Math.abs(checkpoint.nextSpawnIn! - (10 - 4 / 0.75)) < 1e-8);
+});

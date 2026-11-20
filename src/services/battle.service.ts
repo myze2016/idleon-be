@@ -11,6 +11,7 @@ export interface BattleStep {
   label?: string; teamMp?: number[]; healing?: number; castEndsAt?: number; targetIds?: string[]; critical?: boolean;
   teamCasting?: ({ name: string; startedAt: number; endsAt: number } | null)[];
   enemyIndex?: number; enemyHps?: number[]; enemyMps?: number[];
+  statuses?: number[];
 }
 
 export function simulateGroupBattle(team: Fighter[], enemies: CharacterStats[], random?: () => number) {

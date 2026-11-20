@@ -2,7 +2,7 @@ import { playerIdentity, playerNameSelect } from "../models/player-name.js";
 import { randomBytes, randomInt } from "node:crypto";
 import { prisma } from "../lib/prisma.js";
 import { Prisma, type EndlessRun } from "../generated/prisma/client.js";
-import { defaultEndless, endlessDistanceStats, endlessSpawnInterval, ENDLESS_CHECKPOINT_SECONDS, ENDLESS_METERS_PER_SECOND, validateEndless, type EndlessConfig } from "../models/endless.js";
+import { defaultEndless, endlessDistanceStats, endlessSpawnInterval, EMPTY_BATTLEFIELD_SPAWN_FACTOR, ENDLESS_CHECKPOINT_SECONDS, ENDLESS_METERS_PER_SECOND, validateEndless, type EndlessConfig } from "../models/endless.js";
 import { currentBalance, withBalance, type BalanceConfig } from "../models/balance-context.js";
 import { defaultBalance, normalizeBalance } from "../services/balance.service.js";
 import { effectiveStats } from "../models/artifact.js";
@@ -14,6 +14,7 @@ import { HttpError } from "../utils/http-error.js";
 
 type Pending = { enemyType: EnemyType | null; result: DuelResult; nextSpawnIn?: number; live?: Omit<LiveCombat, "balance"> };
 const playbackMs = (duration: number) => Math.max(1000, Math.ceil(duration * 1000));
+const waveEnemyType = (result: DuelResult) => result.fighters.find(fighter => fighter.enemyType && (fighter.spawnAt ?? 0) <= result.duration)?.enemyType ?? null;
 const isolationLevel = Prisma.TransactionIsolationLevel.ReadCommitted;
 const json = (value: unknown) => value as Prisma.InputJsonValue;
 export async function endlessSettings() {
@@ -95,7 +96,8 @@ export async function prepareEndlessWave(userId: string, id: string) {
     const incoming: DuelFighter[] = [];
     const capacity = Math.max(0, 40 - team.filter(member => member.userId !== userId).length);
     let spawnAt = (settings as EndlessConfig & { spawnDelay?: number }).spawnDelay ?? 0;
-    for (; spawnAt < ENDLESS_CHECKPOINT_SECONDS - 1e-8; spawnAt += endlessSpawnInterval(() => randomInt(1_000_001) / 1_000_000)) {
+    const spawnHorizon = ENDLESS_CHECKPOINT_SECONDS / EMPTY_BATTLEFIELD_SPAWN_FACTOR;
+    for (; spawnAt <= spawnHorizon + 1e-8; spawnAt += endlessSpawnInterval(() => randomInt(1_000_001) / 1_000_000)) {
       const batchSize = randomInt(1, 3);
       for (let member = 0; member < batchSize && incoming.length < capacity; member++) {
         const at = spawnAt;
@@ -105,9 +107,10 @@ export async function prepareEndlessWave(userId: string, id: string) {
         incoming.push({ id: `endless-${run.wave}-${incoming.length}`, userId: `enemy:${userId}`, name: enemy.name, enemyType: type, enemy: stats, stats, startX: front + COMBAT_ENCOUNTER_DISTANCE + member * 72, spawnOffset: member * 72, spawnAt: at });
       }
     }
-    const live: Pending["live"] = { seed: randomBytes(24).toString("hex"), fighters: [...team, ...incoming], changes: [], rulesVersion: LIVE_COMBAT_RULES_VERSION };
+    const live: Pending["live"] = { seed: randomBytes(24).toString("hex"), fighters: [...team, ...incoming], changes: [],
+      rulesVersion: LIVE_COMBAT_RULES_VERSION, endlessSpawns: { scheduleEnd: spawnAt, distance: run.bestWave, statMultiplier: settings.statMultiplier } };
     const result = replayCombat({ ...live, balance }, ENDLESS_CHECKPOINT_SECONDS);
-    const updated = await tx.endlessRun.update({ where: { id }, data: { pending: json({ enemyType: incoming[0]?.enemyType ?? team.find(member => member.enemyType)?.enemyType ?? null, result, nextSpawnIn: spawnAt - ENDLESS_CHECKPOINT_SECONDS, live }), readyAt: new Date(Date.now() + playbackMs(result.duration)) } });
+    const updated = await tx.endlessRun.update({ where: { id }, data: { pending: json({ enemyType: waveEnemyType(result), result, nextSpawnIn: result.nextSpawnIn, live }), readyAt: new Date(Date.now() + playbackMs(result.duration)) } });
     return state(updated);
   }, { isolationLevel });
 }
@@ -125,7 +128,10 @@ export async function setEndlessSkill2(userId: string, id: string, wave: number,
     const at = Math.max(0, (Date.now() - startsAt) / 1000 + 0.25, live.changes.at(-1)?.at ?? 0);
     const nextLive = { ...live, changes: [...live.changes, { fighterId, enabled, at }] };
     const result = at < pending.result.duration ? replayCombat({ ...nextLive, balance }, ENDLESS_CHECKPOINT_SECONDS) : pending.result;
-    const updated = await tx.endlessRun.update({ where: { id }, data: { pending: json({ ...pending, live: nextLive, result }), readyAt: new Date(startsAt + playbackMs(result.duration)) } });
+    const updated = await tx.endlessRun.update({ where: { id }, data: {
+      pending: json({ ...pending, live: nextLive, result, enemyType: waveEnemyType(result), nextSpawnIn: result.nextSpawnIn ?? pending.nextSpawnIn }),
+      readyAt: new Date(startsAt + playbackMs(result.duration)),
+    } });
     return state(updated);
   }, { isolationLevel });
 }

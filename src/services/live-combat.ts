@@ -2,11 +2,11 @@ import { createHmac, randomBytes } from "node:crypto";
 import { currentBalance, withBalance, type BalanceConfig } from "../models/balance-context.js";
 import { skills } from "../models/skills.js";
 import { defaultBalance } from "./balance.service.js";
-import { COMBAT_ENCOUNTER_DISTANCE, COMBAT_VISIBLE_DISTANCE, PVP_RANGED_RANGE, simulateDuel, type DuelFighter, type DuelResult } from "./pvp-battle.service.js";
+import { COMBAT_ENCOUNTER_DISTANCE, COMBAT_VISIBLE_DISTANCE, PVP_RANGED_RANGE, simulateDuel, type DuelFighter, type DuelResult, type EndlessSpawnSchedule } from "./pvp-battle.service.js";
 
 export interface Skill2Change { fighterId: string; at: number; enabled: boolean }
 export const LIVE_COMBAT_RULES_VERSION = 15;
-export interface LiveCombat { seed: string; balance: BalanceConfig; fighters: DuelFighter[]; changes: Skill2Change[]; rulesVersion?: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | typeof LIVE_COMBAT_RULES_VERSION }
+export interface LiveCombat { seed: string; balance: BalanceConfig; fighters: DuelFighter[]; changes: Skill2Change[]; endlessSpawns?: EndlessSpawnSchedule; rulesVersion?: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | typeof LIVE_COMBAT_RULES_VERSION }
 
 export function liveCombatDistances(rulesVersion: LiveCombat["rulesVersion"]) {
   return (rulesVersion ?? 0) >= 5
@@ -65,6 +65,7 @@ export function replayCombat(live: LiveCombat, continuousSeconds?: number, exped
     pauseFormationDuringCast: live.rulesVersion === 13,
     spearCastCamera: live.rulesVersion === 14,
     unifiedMovement: (live.rulesVersion ?? 0) >= 15,
+    endlessSpawns: live.endlessSpawns,
     ...liveCombatDistances(live.rulesVersion),
     skill2EnabledAt: (fighter, at) => latestSkill2Change(byFighter.get(fighter.id) ?? [], fighter.id, at)?.enabled,
   }));
