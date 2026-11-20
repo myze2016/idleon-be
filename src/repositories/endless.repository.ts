@@ -58,11 +58,11 @@ export async function startEndless(userId: string, ids: string[], requestKey: st
     const owned = await tx.character.findMany({ where: { userId, id: { in: ids } }, include: { artifact: true } });
     if (owned.length !== ids.length) throw new HttpError(400, "Choose one to six characters you own");
     const balance = normalizeBalance(currentBalance() ?? defaultBalance());
-    const team = withBalance(balance, () => ids.map(id => {
+    const team = withBalance(balance, () => ids.map((id, slot) => {
       const character = owned.find(entry => entry.id === id)!;
       const weapon = character.weapon.replaceAll("_", "-") as WeaponType;
       const stats = effectiveStats(weapon, character.artifact, character.upgradeLevel);
-      return { id, userId, name: character.name, weapon, stats, skill2Unlocked: character.skill2Unlocked, hp: stats.hp, mp: stats.mp };
+      return { id, userId, name: character.name, weapon, stats, backRow: slot >= 3, skill2Unlocked: character.skill2Unlocked, hp: stats.hp, mp: stats.mp };
     }));
     const run = await tx.endlessRun.create({ data: { userId, requestKey, season: settings.version, team: json(team), settings: json(settings.config), balance: json(balance) } });
     return state(run);
@@ -103,7 +103,7 @@ export async function prepareEndlessWave(userId: string, id: string) {
 }
 export async function resolveEndlessWave(userId: string, id: string, wave: number) {
   await expire(userId);
-  return prisma.$transaction(async tx => {
+  const resolved = await prisma.$transaction(async tx => {
     const run = await ownedRun(tx, userId, id);
     if (wave < run.wave || run.status !== "active") return state(run);
     if (wave !== run.wave || !run.pending || !run.readyAt) throw new HttpError(409, "Combat has not started yet");
@@ -123,6 +123,9 @@ export async function resolveEndlessWave(userId: string, id: string, wave: numbe
     const updated = await tx.endlessRun.update({ where: { id }, data: { status: survived ? "active" : "defeated", wave: run.wave + 1, bestWave: distance, team: json(team), settings: json({ ...(run.settings as unknown as EndlessConfig), spawnDelay: nextSpawnIn ?? 0 }), pending: Prisma.DbNull, readyAt: null } });
     return state(updated);
   }, { isolationLevel });
+  // Return the next combat checkpoint in the same HTTP response. The client
+  // keeps playing instead of stopping to make another spawn request.
+  return resolved?.status === "active" && !resolved.pending ? prepareEndlessWave(userId, id) : resolved;
 }
 export async function retireEndless(userId: string, id: string) {
   return prisma.$transaction(async tx => {

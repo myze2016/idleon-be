@@ -8,7 +8,7 @@ import { realtimeBus, type RealtimeEvent } from "./realtime-bus.js";
 import { realtimeSession, verifyRealtimeTicket } from "./realtime-ticket.js";
 
 type Subscription = { id: string; channel: "gathering" | "pvp" | "pvp-chat" | "pvp-lobby"; roomId?: number; token?: string; code?: string };
-type Client = { userId?: string; sessionId?: string; authenticating: boolean; alive: boolean; subscriptions: Map<string, Subscription>; versions: Map<string, number>; window: number; count: number; moved: number; moving: boolean };
+type Client = { userId?: string; sessionId?: string; authenticating: boolean; alive: boolean; subscriptions: Map<string, Subscription>; versions: Map<string, number>; pending: number; window: number; count: number; moved: number; moving: boolean };
 export function attachRealtimeServer(server: Server, options: { broker?: boolean; heartbeatMs?: number } = {}) {
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 8192, perMessageDeflate: false });
   const clients = new Map<WebSocket, Client>();
@@ -35,6 +35,10 @@ export function attachRealtimeServer(server: Server, options: { broker?: boolean
     throw new HttpError(400, "Invalid subscription");
   }
   const receiveEvent = (event: RealtimeEvent) => {
+    if (event.kind === "session-ended") {
+      for (const [socket, client] of clients) if (client.sessionId === event.sessionId) socket.close(4001, "Please sign in again");
+      return;
+    }
     for (const [socket, client] of clients) for (const [id, sub] of client.subscriptions) {
       if (event.kind === "lease") {
         if (client.userId === event.userId && sub.channel === "gathering" && ((event.token && event.token !== sub.token) || (event.invalidatedToken && event.invalidatedToken === sub.token))) {
@@ -52,8 +56,6 @@ export function attachRealtimeServer(server: Server, options: { broker?: boolean
   const health = (active: boolean) => { if (!active) for (const socket of clients.keys()) socket.close(1013, "Reconnect to realtime"); };
   realtimeBus.on("event", receiveEvent); realtimeBus.on("health", health);
   if (options.broker !== false) void realtimeBus.start();
-  const upgrade: Parameters<Server["on"]>[1] = () => {};
-  void upgrade; // Upgrade handling stays separate from Express's cookie-authenticated HTTP routes.
   const upgradeHandler = (request: import("node:http").IncomingMessage, socket: import("node:stream").Duplex, head: Buffer) => {
     if (new URL(request.url ?? "/", "http://localhost").pathname !== "/realtime") { socket.destroy(); return; }
     if (!isAllowedOrigin(request.headers.origin) || clients.size >= 1024) { socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n"); return; }
@@ -61,7 +63,7 @@ export function attachRealtimeServer(server: Server, options: { broker?: boolean
   };
   server.on("upgrade", upgradeHandler);
   sockets.on("connection", socket => {
-    const client: Client = { authenticating: false, alive: true, subscriptions: new Map(), versions: new Map(), window: Date.now(), count: 0, moved: 0, moving: false };
+    const client: Client = { authenticating: false, alive: true, subscriptions: new Map(), versions: new Map(), pending: 0, window: Date.now(), count: 0, moved: 0, moving: false };
     clients.set(socket, client);
     const timeout = setTimeout(() => { if (!client.userId) socket.close(4001, "Authentication required"); }, 5000); timeout.unref();
     socket.on("pong", () => { client.alive = true; });
@@ -83,13 +85,18 @@ export function attachRealtimeServer(server: Server, options: { broker?: boolean
           clearTimeout(timeout); send(socket, { type: "ready" }); return;
         }
         if (value.type === "subscribe") {
-          if (client.subscriptions.size >= 8 || client.versions.size >= 32) throw new HttpError(429, "Too many subscriptions");
+          if (client.subscriptions.size + client.pending >= 8) throw new HttpError(429, "Too many subscriptions");
+          if (client.versions.size >= 256) throw new HttpError(503, "Reconnect to realtime");
           const id = typeof value.id === "string" ? value.id : "";
           const version = (client.versions.get(id) ?? 0) + 1; client.versions.set(id, version);
-          const sub = await subscribe(client.userId, value);
-          if (client.versions.get(id) === version && socket.readyState === WebSocket.OPEN) { client.subscriptions.set(id, sub); send(socket, { type: "subscribed", id }); }
+          client.pending++;
+          try {
+            const sub = await subscribe(client.userId, value);
+            if (client.versions.get(id) === version && socket.readyState === WebSocket.OPEN) { client.subscriptions.set(id, sub); send(socket, { type: "subscribed", id }); }
+          } finally { client.pending--; }
         } else if (value.type === "unsubscribe" && typeof value.id === "string") {
-          client.versions.set(value.id, (client.versions.get(value.id) ?? 0) + 1); client.subscriptions.delete(value.id);
+          if (client.versions.has(value.id)) client.versions.set(value.id, client.versions.get(value.id)! + 1);
+          client.subscriptions.delete(value.id);
         } else if (value.type === "move") {
           const sub = client.subscriptions.get(String(value.id));
           if (!sub || sub.channel !== "gathering") throw new HttpError(403, "Join the gathering room first");

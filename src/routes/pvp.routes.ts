@@ -3,6 +3,7 @@ import { rateLimit } from "express-rate-limit";
 import { requireAuth } from "../middlewares/require-auth.js";
 import { isAllowedOrigin } from "../config/origin.js";
 import { HttpError } from "../utils/http-error.js";
+import { realtimeBus } from "../services/realtime-bus.js";
 import { listPvp, createPvp, joinPvp, selectPvp, readyPvp, pvpState, leavePvp, returnToPvp, pvpChat, sendPvpChat } from "../repositories/pvp.repository.js";
 
 export const pvpRouter = Router();
@@ -10,6 +11,15 @@ pvpRouter.use(requireAuth);
 pvpRouter.use((req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
   if (req.method === "POST" && !isAllowedOrigin(req.get("origin"))) return next(new HttpError(403, "Request origin is not allowed"));
+  if (req.method === "POST") {
+    const code = req.path.match(/^\/([A-F0-9]{10})(?:\/|$)/)?.[1];
+    const chat = req.path.endsWith("/chat");
+    res.once("finish", () => {
+      if (res.statusCode >= 400) return;
+      if (code) realtimeBus.publish({ kind: chat ? "pvp-chat" : "pvp", code });
+      if (!chat) realtimeBus.publish({ kind: "pvp-lobby" });
+    });
+  }
   next();
 });
 pvpRouter.get("/", async (req, res) => { res.json({ data: await listPvp(req.session.user!.id) }); });

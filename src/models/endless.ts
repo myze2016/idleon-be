@@ -5,8 +5,9 @@ export interface EndlessConfig { enabled: boolean; enemyPool: EnemyType[]; statM
 export const defaultEndless: EndlessConfig = { enabled: true, enemyPool: ["slime", "boar", "plant"], statMultiplier: 1.1 };
 export const ENDLESS_CHECKPOINT_SECONDS = 12;
 export const ENDLESS_METERS_PER_SECOND = 10;
+export const ENDLESS_STAT_STEP_METERS = 500;
 export function endlessDistanceStats(base: EnemyStats, distance: number, multiplier: number) {
-  return endlessEnemyStats(base, 1 + Math.max(0, distance) / 100, multiplier);
+  return endlessEnemyStats(base, 1 + Math.floor(Math.max(0, distance) / ENDLESS_STAT_STEP_METERS), multiplier);
 }
 export function endlessSpawnInterval(roll = Math.random) {
   return 2 + roll();

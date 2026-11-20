@@ -1,5 +1,6 @@
 import session, { type SessionData } from "express-session";
 import { prisma } from "../lib/prisma.js";
+import { realtimeBus } from "../services/realtime-bus.js";
 
 type Done = (error?: unknown) => void;
 
@@ -32,7 +33,7 @@ export class PrismaSessionStore extends session.Store {
 
   destroy(id: string, callback: Done = () => {}) {
     this.touched.delete(id);
-    void prisma.session.deleteMany({ where: { id } }).then(() => callback()).catch(callback);
+    void prisma.session.deleteMany({ where: { id } }).then(() => { realtimeBus.publish({ kind: "session-ended", sessionId: id }); callback(); }).catch(callback);
   }
 
   touch(id: string, data: SessionData, callback: Done = () => {}) {

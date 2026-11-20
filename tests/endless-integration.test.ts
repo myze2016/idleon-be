@@ -49,6 +49,8 @@ test("Endless admin controls, verified distance and continuous spawns, snapshots
     assert.equal(resolutions[0].body.data.wave, 2); assert.equal(resolutions[1].body.data.wave, 2);
     const after = resolutions[0].body.data;
     assert.equal(after.distance, 120); assert.equal(after.bestWave, 120);
+    assert.ok(after.pending, "resolving a surviving run prepares the next checkpoint without a separate spawn request");
+    assert.ok(after.readyAt);
     assert.equal(after.team[0].hp, wave.pending.result.steps.at(-1).hp[0]);
     const laterSettings = { enabled: true, enemyPool: ["fishpeople-lord"], statMultiplier: 2 };
     const newer = (await save(season, laterSettings).expect(200)).body.data;
@@ -56,7 +58,7 @@ test("Endless admin controls, verified distance and continuous spawns, snapshots
     const next = (await post(one, `${run.id}/wave`).expect(200)).body.data;
     assert.equal(next.season, season); assert.equal(next.pending.enemyType, "slime");
     const incoming = next.pending.result.fighters.find((fighter: { id: string }) => fighter.id === "endless-2-0");
-    assert.equal(incoming.stats.hp, Math.ceil(40 * 1.2 ** ((120 + incoming.spawnAt * 10) / 100)));
+    assert.equal(incoming.stats.hp, Math.ceil(40 * 1.2 ** Math.floor((120 + incoming.spawnAt * 10) / 500)));
     const lastSpawn = Math.max(...wave.pending.result.fighters.filter((fighter: { enemyType?: string }) => fighter.enemyType).map((fighter: { spawnAt: number }) => fighter.spawnAt));
     const gap = 12 + incoming.spawnAt - lastSpawn;
     assert.ok(gap >= 2 - 1e-8 && gap <= 3 + 1e-8);

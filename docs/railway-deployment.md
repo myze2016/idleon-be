@@ -42,6 +42,32 @@ BACKEND_URL=https://YOUR-BACKEND.up.railway.app
 
 `BACKEND_URL` has no `/api` suffix. Browser requests must use the frontend `/api` rewrite so login cookies stay on the frontend domain. Do not put database credentials, the session secret, Google client secret, or Resend key in Vercel public variables. Use the same exact frontend domain in backend `CORS_ORIGIN`, without a trailing slash; preview domains are not automatically allowed.
 
+## Realtime multiplayer
+
+Gathering movement, chat, PvP rooms and lobby changes use authenticated WebSockets
+at `/realtime` on the Railway backend. HTTP login remains on the Vercel `/api`
+proxy. The frontend requests a short-lived ticket through that proxy, then opens
+the socket directly to Railway; no cross-site login cookie is needed.
+
+Railway's `RAILWAY_PUBLIC_DOMAIN` automatically supplies the socket address. If
+you use a custom domain, set the backend variable
+`REALTIME_PUBLIC_URL=wss://YOUR-PUBLIC-BACKEND-DOMAIN/realtime`. Keep `CORS_ORIGIN`
+equal to the exact frontend origin and keep `SESSION_SECRET` identical across
+backend replicas. No new public frontend variable is required.
+
+Small events are relayed between replicas with PostgreSQL `LISTEN/NOTIFY` using
+one dedicated connection per backend instance. Use the direct Railway PostgreSQL
+`DATABASE_URL`, not a transaction-mode pooler URL. Existing HTTP requests remain
+the authority for chat, teams, invitations and battles. Socket movement validates
+the current room lease before saving or broadcasting it. Disconnected clients
+reconnect with a fresh ticket and fall back to polling in the meantime.
+
+After redeploying both apps, browser Network > WS should show `/realtime` on your
+Railway domain with status 101, followed by `ready` and `subscribed` messages.
+Check movement and chat with two accounts, then interrupt the connection to verify
+polling fallback and reconnect. Socket tickets are sent in the first frame, not
+in the URL. This change requires no database migration or Redis service.
+
 ## Google and email registration
 
 Set backend `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and:

@@ -25,7 +25,7 @@ const rangedSkills = new Set(["shackle", "fireball", "inferno", "throw-spear", "
 
 /** Ordered fighters: host formation followed by guest formation, front slots first. */
 export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_000_000) / 1_000_000, continuousSeconds?: number): DuelResult {
-  fighters = fighters.map(fighter => ({ ...fighter }));
+  fighters = fighters.map((fighter, index) => ({ ...fighter, ...(continuousSeconds && fighter.userId === fighters[0]?.userId ? { backRow: fighter.backRow ?? index >= 3 } : {}) }));
   const owners = [...new Set(fighters.map((fighter) => fighter.userId))];
   if (owners.length !== 2 || (!continuousSeconds && owners.some((id) => fighters.filter((fighter) => fighter.userId === id).length > 6))) throw new Error("PvP requires two teams of one to six characters");
   const units = fighters.map((fighter, index) => {
@@ -56,6 +56,7 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
   const alive = (team: number) => units.flatMap((unit, index) => unit.team === team && unit.hp > 0 && (unit.fighter.spawnAt ?? 0) <= at + 1e-8 ? [index] : []);
   const enemies = (index: number) => alive(1 - units[index].team).sort((a, b) => Math.abs(units[a].x - units[index].x) - Math.abs(units[b].x - units[index].x) || a - b);
   const allies = (index: number) => alive(units[index].team);
+  const protectedBackRow = (index: number) => !!continuousSeconds && units[index].team === 0 && fighters[index].backRow && allies(index).some(other => !fighters[other].backRow);
   const basicRange = (index: number) => fighters[index].stats.range === "range" ? PVP_RANGED_RANGE : PVP_MELEE_RANGE;
   const skillRange = (skill: SkillDefinition) => rangedSkills.has(skill.id) ? PVP_RANGED_RANGE : PVP_MELEE_RANGE;
   const inRange = (actor: number, target: number, range: number) => Math.abs(units[actor].x - units[target].x) <= range + 1e-5;
@@ -104,6 +105,7 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
     return true;
   }
   function basic(actor: number, counter = false, counterTarget?: number) {
+    if (protectedBackRow(actor) && fighters[actor].stats.range !== "range") return;
     const targets = (counterTarget === undefined ? enemies(actor) : [counterTarget]).filter((target) => inRange(actor, target, basicRange(actor))).slice(0, units[actor].fighter.weapon === "glaive" ? 2 : 1);
     for (const target of targets) {
       const current = stats(actor), defender = stats(target);
@@ -129,6 +131,7 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
   function eligible(actor: number, skill: SkillDefinition) {
     if (skill.id === "heal" || skill.id === "mass-heal") return allies(actor).some((index) => units[index].hp < fighters[index].stats.hp);
     if (buffKind(skill.id)) return buffTargets(actor, skill).length > 0;
+    if (protectedBackRow(actor) && !rangedSkills.has(skill.id)) return false;
     return enemies(actor).some((index) => inRange(actor, index, skillRange(skill)) && (skill.id !== "shackle" || units[index].stun <= at));
   }
   function finish(actor: number) {
@@ -223,7 +226,14 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
     const next = events[0];
     if (next.at > (continuousSeconds ?? 180)) { at = continuousSeconds ?? 180; break; }
     at = next.at;
-    if (next.type === "spawn") { emit(next.index, "spawn", "Enemy approaches"); continue; }
+    if (next.type === "spawn") {
+      if (continuousSeconds && units[next.index].team === 1) {
+        // Spawn relative to the travelling party, not its position at the
+        // beginning of the checkpoint (which can now be behind the party).
+        units[next.index].x = Math.max(...alive(0).map(index => units[index].x)) + 800;
+      }
+      emit(next.index, "spawn", "Enemy approaches"); continue;
+    }
     if (next.type === "move") {
       moveAt += MOVE_TICK;
       let moved = false;
@@ -231,7 +241,13 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
       const destinations = units.map((unit, index) => {
         if (unit.hp <= 0 || (unit.fighter.spawnAt ?? 0) > at + 1e-8 || unit.cast || unit.stun > at + 1e-8) return unit.x;
         const target = enemies(index)[0];
-        if (target === undefined) return unit.x;
+        // Adventure parties keep travelling together between enemies. PvP
+        // continues to hold its arena positions when there is no target.
+        if (target === undefined) {
+          if (continuousSeconds && unit.team === 0) { moved = true; return unit.x + PVP_WALK_SPEED * MOVE_TICK; }
+          return unit.x;
+        }
+        if (protectedBackRow(index) && unit.fighter.stats.range !== "range") return unit.x;
         let reach = basicRange(index);
         const native = unit.fighter.enemy;
         if ((native?.bubbleBeam && unit.mp >= native.bubbleBeam.mana) || (native?.skill?.kind === "shot" && unit.mp >= native.skill.mana) || (native?.burnAll && unit.mp >= native.burnAll.mana) || (native?.slashAll && unit.mp >= native.slashAll.mana)) reach = Math.max(reach, PVP_RANGED_RANGE);
@@ -251,7 +267,7 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
     }
     if (next.type === "mana") {
       manaAt += 1;
-      units.forEach((unit) => { if (unit.hp > 0 && !unit.fighter.enemy) unit.mp = Math.min(unit.fighter.stats.mp, unit.mp + 5); });
+      units.forEach((unit) => { if (unit.hp > 0 && !unit.fighter.enemy) unit.mp = Math.min(unit.fighter.stats.mp, unit.mp + (continuousSeconds && unit.team === 0 && unit.fighter.backRow ? 10 : 5)); });
       emit(0, "mana", "Mana regeneration"); continue;
     }
     if (next.type === "expiry") { buff(next.index); emit(next.index, "buff", "Buff expired"); continue; }

@@ -22,8 +22,10 @@ test("Endless validates the spawn pool and multiplier and preserves enemy mechan
 test("Endless scales by distance and keeps spawn intervals between 2 and 3 seconds", () => {
   const base = defaultEnemies.slime.stats;
   assert.deepEqual(endlessDistanceStats(base, 0, 2), base);
-  assert.equal(endlessDistanceStats(base, 100, 2).hp, base.hp * 2);
-  assert.equal(endlessDistanceStats(base, 200, 2).hp, base.hp * 4);
+  for (const distance of [-1, 100, 200, 499.99]) assert.deepEqual(endlessDistanceStats(base, distance, 2), base);
+  assert.equal(endlessDistanceStats(base, 500, 2).hp, base.hp * 2);
+  assert.equal(endlessDistanceStats(base, 999.99, 2).hp, base.hp * 2);
+  assert.equal(endlessDistanceStats(base, 1000, 2).hp, base.hp * 4);
   assert.equal(endlessSpawnInterval(() => 0), 2);
   assert.equal(endlessSpawnInterval(() => 0.5), 2.5);
   assert.equal(endlessSpawnInterval(() => 1), 3);
@@ -59,4 +61,32 @@ test("shared battle simulation respects carried HP/MP and never revives fallen t
   assert.equal(result.steps[0].mp[1], 7);
   assert.ok(result.steps.every(step => step.hp[0] === 0));
   assert.equal(result.winnerId, "player");
+});
+
+test("Endless travels between enemies and later spawns stay ahead of the travelling team", () => {
+  const stats = { hp: 10000, mp: 0, atk: 1, def: 100, magic: 0, magicDef: 100, speed: 0, range: "melee" as const };
+  const result = simulateDuel([
+    { id: "front", userId: "player", name: "Front", stats, weapon: "sword-and-shield", startX: 400 },
+    { id: "back", userId: "player", name: "Back", stats, weapon: "sword-and-shield", startX: 336 },
+    { id: "incoming", userId: "enemy", name: "Slime", stats, enemyType: "slime", enemy: stats, startX: 450, spawnAt: 4 },
+  ], () => .99, 12);
+  const travelling = result.steps.findLast(step => step.at < 4)!;
+  assert.ok(travelling.x[0] > 400);
+  assert.ok(Math.abs(travelling.x[0] - travelling.x[1] - 64) < 1e-6);
+  const spawn = result.steps.find(step => step.kind === "spawn")!;
+  assert.equal(spawn.x[2] - Math.max(spawn.x[0], spawn.x[1]), 800);
+  assert.ok(result.steps.some(step => step.at > 4 && step.kind === "attack"));
+});
+
+test("Endless uses adventure back-row melee protection and mana regeneration", () => {
+  const stats = { hp: 10000, mp: 100, atk: 10, def: 100, magic: 0, magicDef: 100, speed: 0, range: "melee" as const };
+  const team = Array.from({ length: 4 }, (_, index) => ({ id: `hero-${index}`, userId: "player", name: "Knight", stats, weapon: "sword-and-shield" as const, startX: 400 - index * 64, mp: 0 }));
+  const enemy = { id: "enemy", userId: "enemy", name: "Slime", stats, enemyType: "slime" as const, enemy: stats, startX: 460 };
+  const result = simulateDuel([...team, enemy], () => .99, 4);
+  assert.ok(result.steps.some(step => step.actor === 0 && step.kind === "attack"));
+  assert.ok(!result.steps.some(step => step.actor === 3 && ["attack", "cast", "skill"].includes(step.kind)));
+  const mana = result.steps.find(step => step.kind === "mana")!;
+  assert.equal(mana.mp[0], 5); assert.equal(mana.mp[3], 10);
+  const exposed = simulateDuel([...team.map((member, index) => ({ ...member, hp: index < 3 ? 0 : stats.hp })), enemy], () => .99, 4);
+  assert.ok(exposed.steps.some(step => step.actor === 3 && step.kind === "attack"));
 });

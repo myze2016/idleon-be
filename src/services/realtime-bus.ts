@@ -4,6 +4,7 @@ import pg from "pg";
 import { env } from "../config/env.js";
 
 export type RealtimeEvent =
+  | { kind: "session-ended"; sessionId: string }
   | { kind: "move"; roomId: number; userId: string; x: number; y: number; at: string }
   | { kind: "gathering"; roomId: number }
   | { kind: "lease"; userId: string; roomId: number; token?: string; invalidatedToken?: string }
