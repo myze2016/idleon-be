@@ -4,7 +4,8 @@ import { prisma } from "../lib/prisma.js";
 import { Prisma, type PvpRoom } from "../generated/prisma/client.js";
 import { effectiveStats } from "../models/artifact.js";
 import type { WeaponType } from "../models/character.js";
-import { simulateDuel, type DuelFighter, type DuelResult } from "../services/pvp-battle.service.js";
+import type { DuelFighter, DuelResult } from "../services/pvp-battle.service.js";
+import { hasActiveSkill2, latestSkill2Change, replayPvpBattle, startLivePvpBattle, type LivePvpResult } from "../services/live-combat.js";
 import { HttpError } from "../utils/http-error.js";
 
 export function pvpPhase(room: Pick<PvpRoom, "status" | "startsAt" | "result" | "expiresAt">, now = Date.now()) {
@@ -94,18 +95,45 @@ export async function readyPvp(userId: string, code: string, ready: boolean) {
     const updated = await tx.pvpRoom.update({ where: { id: room.id }, data: host ? { hostReady: ready } : { guestReady: ready } });
     if (updated.hostReady && updated.guestReady && updated.guestId && updated.hostCharacterId && updated.guestCharacterId) {
       const fighters = [...await snapshotTeam(tx, updated.hostId, selection(updated, true)), ...await snapshotTeam(tx, updated.guestId, selection(updated, false))];
-      const result = simulateDuel(fighters);
+      const result = startLivePvpBattle(fighters);
       await tx.pvpRoom.update({ where: { id: room.id }, data: { status: "started", startsAt: new Date(Date.now() + 5000), result: result as unknown as Prisma.InputJsonValue } });
     }
     return { code };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
 }
+export async function setPvpSkill2(userId: string, code: string, fighterId: string, enabled: boolean) {
+  return prisma.$transaction(async tx => {
+    const room = await lockRoom(tx, code, userId);
+    const now = Date.now();
+    if (!room.startsAt || !["countdown", "battle"].includes(pvpPhase(room, now))) throw new HttpError(409, "Skill 2 can only be changed during an active match");
+    const result = room.result as unknown as LivePvpResult;
+    const live = result.live;
+    if (!live) throw new HttpError(409, "Skill 2 controls are available in new matches");
+    const fighter = live.fighters.find(fighter => fighter.id === fighterId && fighter.userId === userId);
+    if (!fighter || !hasActiveSkill2(fighter, live.balance)) throw new HttpError(400, "Choose one of your fighters with an unlocked active Skill 2");
+    const previous = latestSkill2Change(live.changes, fighterId);
+    if ((previous?.enabled ?? true) === enabled) return { code };
+    if (live.changes.length >= 120) throw new HttpError(409, "This match has reached its Skill 2 change limit");
+    const at = Math.max(0, (now - room.startsAt.getTime()) / 1000 + 0.25, live.changes.at(-1)?.at ?? 0);
+    if (at >= result.duration) throw new HttpError(409, "The match is ending");
+    const next = replayPvpBattle({ ...live, changes: [...live.changes, { fighterId, enabled, at }] });
+    await tx.pvpRoom.update({ where: { id: room.id }, data: { result: next as unknown as Prisma.InputJsonValue } });
+    return { code };
+  });
+}
+
 export async function pvpState(userId: string, code: string, knownBattle?: string) {
   const room = await prisma.pvpRoom.findUnique({ where: { code }, include: { host: { select: { id: true, ...playerNameSelect } }, guest: { select: { id: true, ...playerNameSelect } } } });
   if (!room) throw new HttpError(404, "PvP room not found");
   if (room.hostId !== userId && room.guestId !== userId) throw new HttpError(403, "You are not in this PvP room");
-  const phase = pvpPhase(room), result = room.result as unknown as DuelResult | null;
-  const resultUnchanged = !!result && !!knownBattle && knownBattle === room.startsAt?.toISOString() && ["battle", "complete"].includes(phase);
+  const phase = pvpPhase(room), stored = room.result as unknown as LivePvpResult | null;
+  const live = stored?.live;
+  const result = stored && { fighters: stored.fighters, steps: stored.steps, duration: stored.duration, winnerId: stored.winnerId };
+  const startsAt = room.startsAt?.toISOString() ?? null;
+  const battleVersion = live?.changes.length ? `${startsAt}:${live.changes.length}` : startsAt;
+  const resultUnchanged = !!stored && !!knownBattle && knownBattle === battleVersion && ["battle", "complete"].includes(phase);
+  const skill2 = live?.fighters.filter(fighter => fighter.userId === userId && hasActiveSkill2(fighter, live.balance))
+    .map(fighter => ({ id: fighter.id, name: fighter.name, enabled: latestSkill2Change(live.changes, fighter.id)?.enabled ?? true }));
   return { code, phase, serverNow: new Date().toISOString(), startsAt: room.startsAt?.toISOString() ?? null,
     players: [room.host, room.guest].map((user, side) => user ? { id: user.id, ...playerIdentity(user), ready: side === 0 ? room.hostReady : room.guestReady,
       selected: selection(room, side === 0).length > 0, selectedCount: selection(room, side === 0).length,
@@ -113,7 +141,7 @@ export async function pvpState(userId: string, code: string, knownBattle?: strin
       characterId: user.id === userId ? (side === 0 ? room.hostCharacterId : room.guestCharacterId) : null,
       fighters: room.startsAt && !resultUnchanged ? result?.fighters.filter((fighter) => fighter.userId === user.id) ?? [] : [],
       fighter: room.startsAt && !resultUnchanged ? result?.fighters.find((fighter) => fighter.userId === user.id) ?? null : null } : null),
-    resultUnchanged, result: !resultUnchanged && (phase === "battle" || phase === "complete") ? result : null };
+    battleVersion, skill2, resultUnchanged, result: stored && !resultUnchanged && (phase === "battle" || phase === "complete") ? result : null };
 }
 export async function leavePvp(userId: string, code: string) {
   return prisma.$transaction(async (tx) => {

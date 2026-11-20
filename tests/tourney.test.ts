@@ -11,7 +11,7 @@ test("Zugwang slashes every living ally twice for 40 mana each, then uses basic 
   assert.equal(slashes.length, 6);
   for (let i = 0; i < 3; i++) {
     const hits = slashes.filter((step) => step.characterId === `ally-${i}`);
-    assert.deepEqual(hits.map((step) => step.at), [1, 2]);
+    assert.deepEqual(hits.map((step) => step.at), [1, 11]);
     assert.ok(hits.every((step) => step.damage === Math.max(1, 20 - team[i].stats.def)));
   }
   assert.ok(battle.steps.some((step) => step.actor === "enemy" && step.kind === "attack" && step.at === 3));

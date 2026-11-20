@@ -1,5 +1,5 @@
 import { playerIdentity, playerNameSelect } from "../models/player-name.js";
-import { randomInt } from "node:crypto";
+import { randomBytes, randomInt } from "node:crypto";
 import { prisma } from "../lib/prisma.js";
 import { Prisma, type EndlessRun } from "../generated/prisma/client.js";
 import { defaultEndless, endlessDistanceStats, endlessSpawnInterval, ENDLESS_CHECKPOINT_SECONDS, ENDLESS_METERS_PER_SECOND, validateEndless, type EndlessConfig } from "../models/endless.js";
@@ -8,10 +8,12 @@ import { defaultBalance, normalizeBalance } from "../services/balance.service.js
 import { effectiveStats } from "../models/artifact.js";
 import { enemies, defaultEnemies, type EnemyType } from "../models/enemy.js";
 import type { WeaponType } from "../models/character.js";
-import { simulateDuel, type DuelFighter, type DuelResult } from "../services/pvp-battle.service.js";
+import type { DuelFighter, DuelResult } from "../services/pvp-battle.service.js";
+import { hasActiveSkill2, latestSkill2Change, replayCombat, type LiveCombat } from "../services/live-combat.js";
 import { HttpError } from "../utils/http-error.js";
 
-type Pending = { enemyType: EnemyType | null; result: DuelResult; nextSpawnIn?: number };
+type Pending = { enemyType: EnemyType | null; result: DuelResult; nextSpawnIn?: number; live?: Omit<LiveCombat, "balance"> };
+const playbackMs = (duration: number) => Math.max(1000, Math.ceil(duration * 1000));
 const isolationLevel = Prisma.TransactionIsolationLevel.ReadCommitted;
 const json = (value: unknown) => value as Prisma.InputJsonValue;
 export async function endlessSettings() {
@@ -32,9 +34,14 @@ export async function saveEndlessSettings(version: number, input: unknown) {
 }
 function state(run: EndlessRun | null) {
   if (!run) return null;
+  const pending = run.pending as unknown as Pending | null;
+  const live = pending?.live;
+  const skill2 = live?.fighters.filter(fighter => fighter.userId === run.userId && hasActiveSkill2(fighter, run.balance as unknown as BalanceConfig))
+    .map(fighter => ({ id: fighter.id, name: fighter.name, enabled: latestSkill2Change(live.changes, fighter.id)?.enabled ?? fighter.skill2Enabled !== false }));
   return { id: run.id, season: run.season, status: run.status, wave: run.wave, bestWave: run.bestWave,
     distance: run.bestWave, team: (run.team as unknown as DuelFighter[]).filter(member => member.userId === run.userId), settings: run.settings as unknown as EndlessConfig,
-    pending: run.pending as unknown as Pending | null, readyAt: run.readyAt?.toISOString() ?? null,
+    pending: pending && { enemyType: pending.enemyType, result: pending.result, nextSpawnIn: pending.nextSpawnIn },
+    skill2, readyAt: run.readyAt?.toISOString() ?? null,
     serverNow: new Date().toISOString(), createdAt: run.createdAt.toISOString() };
 }
 async function expire(userId: string) {
@@ -96,10 +103,27 @@ export async function prepareEndlessWave(userId: string, id: string) {
         incoming.push({ id: `endless-${run.wave}-${incoming.length}`, userId: `enemy:${userId}`, name: enemy.name, enemyType: type, enemy: stats, stats, startX: front + 800 + member * 72, spawnOffset: member * 72, spawnAt: at });
       }
     }
-    const result = withBalance(balance, () => {
-      return simulateDuel([...team, ...incoming], undefined, ENDLESS_CHECKPOINT_SECONDS);
-    });
-    const updated = await tx.endlessRun.update({ where: { id }, data: { pending: json({ enemyType: incoming[0]?.enemyType ?? team.find(member => member.enemyType)?.enemyType ?? null, result, nextSpawnIn: spawnAt - ENDLESS_CHECKPOINT_SECONDS }), readyAt: new Date(Date.now() + Math.max(1000, Math.ceil(result.duration * 1000))) } });
+    const live = { seed: randomBytes(24).toString("hex"), fighters: [...team, ...incoming], changes: [] };
+    const result = replayCombat({ ...live, balance }, ENDLESS_CHECKPOINT_SECONDS);
+    const updated = await tx.endlessRun.update({ where: { id }, data: { pending: json({ enemyType: incoming[0]?.enemyType ?? team.find(member => member.enemyType)?.enemyType ?? null, result, nextSpawnIn: spawnAt - ENDLESS_CHECKPOINT_SECONDS, live }), readyAt: new Date(Date.now() + playbackMs(result.duration)) } });
+    return state(updated);
+  }, { isolationLevel });
+}
+export async function setEndlessSkill2(userId: string, id: string, wave: number, fighterId: string, enabled: boolean) {
+  return prisma.$transaction(async tx => {
+    const run = await ownedRun(tx, userId, id);
+    const pending = run.pending as unknown as Pending | null;
+    const live = pending?.live;
+    if (run.status !== "active" || !run.readyAt || !pending || !live || run.wave !== wave) throw new HttpError(409, "Wait for the next combat checkpoint");
+    const balance = run.balance as unknown as BalanceConfig;
+    const fighter = live.fighters.find(fighter => fighter.id === fighterId && fighter.userId === userId);
+    if (!fighter || !hasActiveSkill2(fighter, balance)) throw new HttpError(400, "Choose one of your fighters with an unlocked active Skill 2");
+    if ((latestSkill2Change(live.changes, fighterId)?.enabled ?? fighter.skill2Enabled !== false) === enabled) return state(run);
+    const startsAt = run.readyAt.getTime() - playbackMs(pending.result.duration);
+    const at = Math.max(0, (Date.now() - startsAt) / 1000 + 0.25, live.changes.at(-1)?.at ?? 0);
+    const nextLive = { ...live, changes: [...live.changes, { fighterId, enabled, at }] };
+    const result = at < pending.result.duration ? replayCombat({ ...nextLive, balance }, ENDLESS_CHECKPOINT_SECONDS) : pending.result;
+    const updated = await tx.endlessRun.update({ where: { id }, data: { pending: json({ ...pending, live: nextLive, result }), readyAt: new Date(startsAt + playbackMs(result.duration)) } });
     return state(updated);
   }, { isolationLevel });
 }
@@ -110,12 +134,16 @@ export async function resolveEndlessWave(userId: string, id: string, wave: numbe
     if (wave < run.wave || run.status !== "active") return state(run);
     if (wave !== run.wave || !run.pending || !run.readyAt) throw new HttpError(409, "Combat has not started yet");
     if (run.readyAt.getTime() > Date.now()) throw new HttpError(409, "Combat is still in progress");
-    const { result, nextSpawnIn } = run.pending as unknown as Pending;
+    const { result, nextSpawnIn, live } = run.pending as unknown as Pending;
     const last = result.steps.at(-1);
     const team = result.continuation ?? (run.team as unknown as DuelFighter[]).map(member => {
       const index = result.fighters.findIndex(fighter => fighter.id === member.id && fighter.userId === userId);
       return { ...member, hp: last?.hp[index] ?? member.hp ?? member.stats.hp, mp: last?.mp[index] ?? member.mp ?? member.stats.mp };
     });
+    for (const member of team) {
+      const change = live && member.userId === userId ? latestSkill2Change(live.changes, member.id) : undefined;
+      if (change) member.skill2Enabled = change.enabled;
+    }
     const survived = team.some(member => member.userId === userId && (member.hp ?? member.stats.hp) > 0);
     const distance = Math.min(2147483647, run.bestWave + Math.floor(result.duration * ENDLESS_METERS_PER_SECOND));
     if (distance > 0) {

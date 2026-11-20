@@ -2,7 +2,7 @@ import { skillValue } from "../models/skills.js";
 import { randomInt } from "node:crypto";
 import type { Fighter, BattleStep } from "./battle.service.js";
 import type { CharacterStats } from "../models/character-stats.js";
-import { enemies as enemyCatalog, type EnemyStats } from "../models/enemy.js";
+import { DEFAULT_ENEMY_AREA_COOLDOWN, enemies as enemyCatalog, type EnemyStats } from "../models/enemy.js";
 import { skills, savesManaForSkill2, type SkillDefinition } from "../models/skills.js";
 import { actionDuration, spellCastTime } from "../models/action-timing.js";
 
@@ -253,8 +253,9 @@ export function simulateSkillBattle(team: Fighter[], opponents: EnemyStats | Ene
       }
       const areaSkill = enemy.burnAll ?? enemy.slashAll;
       const areaLabel = enemy.burnAll ? "Burn All" : "Slash All";
-      if (areaSkill && enemyMp[next.index] >= areaSkill.mana) {
+      if (areaSkill && at + 1e-8 >= enemyReady[next.index] && enemyMp[next.index] >= areaSkill.mana) {
         enemyMp[next.index] -= areaSkill.mana;
+        enemyReady[next.index] = at + (areaSkill.cooldown ?? DEFAULT_ENEMY_AREA_COOLDOWN);
         enemyNext[next.index] = at + actionDuration(enemy.speed);
         for (const target of living()) {
           const unit = units[target];

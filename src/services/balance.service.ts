@@ -2,13 +2,21 @@ import { defaultBaseStats } from "../models/character-stats.js";
 import { defaultSkills, type SkillDefinition } from "../models/skills.js";
 import { type BalanceConfig } from "../models/balance-context.js";
 import { HttpError } from "../utils/http-error.js";
-import { defaultEnemies, type EnemyStats } from "../models/enemy.js";
+import { DEFAULT_ENEMY_AREA_COOLDOWN, defaultEnemies, type EnemyStats } from "../models/enemy.js";
 import { defaultEconomy, validateEconomy, normalizeEconomy } from "../models/economy.js";
 
 export function defaultBalance(): BalanceConfig {
   return structuredClone({ economy: defaultEconomy, stats: defaultBaseStats, skills: Object.fromEntries(Object.values(defaultSkills).flat().map(s => [s.id, s])), enemies: Object.fromEntries(Object.entries(defaultEnemies).map(([id, enemy]) => [id, enemy.stats])), rewards: Object.fromEntries(Object.entries(defaultEnemies).map(([id, enemy]) => [id, { gold: enemy.gold, experience: 1 }])) });
 }
-export function normalizeBalance(config: BalanceConfig): BalanceConfig { const defaults = defaultBalance(); return { ...config, economy: normalizeEconomy(config.economy), enemies: { ...defaults.enemies, ...config.enemies }, rewards: { ...defaults.rewards, ...config.rewards } }; }
+export function normalizeBalance(config: BalanceConfig): BalanceConfig {
+  const defaults = defaultBalance();
+  const enemies = { ...defaults.enemies, ...config.enemies };
+  for (const [id, key] of [["demon-prince", "burnAll"], ["zugwang", "slashAll"]] as const) {
+    const stats = enemies[id], area = stats[key];
+    if (area && area.cooldown === undefined) enemies[id] = { ...stats, [key]: { ...area, cooldown: DEFAULT_ENEMY_AREA_COOLDOWN } };
+  }
+  return { ...config, economy: normalizeEconomy(config.economy), enemies, rewards: { ...defaults.rewards, ...config.rewards } };
+}
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function number(value: unknown, min: number, max: number, integer = false) {
   return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max && (!integer || Number.isInteger(value));

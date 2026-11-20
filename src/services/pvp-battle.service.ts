@@ -3,7 +3,7 @@ import { randomInt } from "node:crypto";
 import type { BattleStep, Fighter } from "./battle.service.js";
 import { skills, savesManaForSkill2, type SkillDefinition } from "../models/skills.js";
 import { actionDuration, spellCastTime } from "../models/action-timing.js";
-import { enemies as enemyCatalog, type EnemyStats, type EnemyType } from "../models/enemy.js";
+import { DEFAULT_ENEMY_AREA_COOLDOWN, enemies as enemyCatalog, type EnemyStats, type EnemyType } from "../models/enemy.js";
 
 export interface DuelFighter extends Fighter { userId: string; name: string; startX?: number; enemyType?: EnemyType; enemy?: EnemyStats; spawnAt?: number; spawnOffset?: number; combat?: CombatContinuation }
 interface CombatContinuation {
@@ -25,7 +25,8 @@ const MOVE_TICK = 0.1;
 const rangedSkills = new Set(["shackle", "fireball", "inferno", "throw-spear", "long-shot", "bouncing-glaive", "freeze", "freeze-all"]);
 
 /** Ordered fighters: host formation followed by guest formation, front slots first. */
-export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_000_000) / 1_000_000, continuousSeconds?: number, { expedition = false } = {}): DuelResult {
+export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_000_000) / 1_000_000, continuousSeconds?: number,
+  { expedition = false, skill2EnabledAt }: { expedition?: boolean; skill2EnabledAt?: (fighter: DuelFighter, at: number) => boolean | undefined } = {}): DuelResult {
   const adventure = expedition || !!continuousSeconds;
   fighters = fighters.map((fighter, index) => ({ ...fighter, ...(adventure && fighter.userId === fighters[0]?.userId ? { backRow: fighter.backRow ?? index >= 3 } : {}) }));
   const owners = [...new Set(fighters.map((fighter) => fighter.userId))];
@@ -64,6 +65,7 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
   const steps: DuelStep[] = [];
   const timeLimit = continuousSeconds ?? (expedition ? Infinity : 180);
   let at = 0, manaAt = 1, moveAt = MOVE_TICK;
+  const activeSkill2 = (fighter: DuelFighter) => fighter.skill2Unlocked && (skill2EnabledAt?.(fighter, at) ?? fighter.skill2Enabled) !== false;
   const first = roll() < 0.5 ? 0 : 1;
   const alive = (team: number) => units.flatMap((unit, index) => unit.team === team && unit.hp > 0 && unit.spawned ? [index] : []);
   const enemies = (index: number) => alive(1 - units[index].team).sort((a, b) => adventure && units[index].team === 1
@@ -225,8 +227,9 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
       }
     }
     const area = enemy.burnAll ?? enemy.slashAll, beam = enemy.bubbleBeam;
-    if (area && unit.mp >= area.mana && enemies(actor).some(i => inRange(actor, i, PVP_RANGED_RANGE))) {
+    if (area && at + 1e-8 >= unit.enemyReady && unit.mp >= area.mana && enemies(actor).some(i => inRange(actor, i, PVP_RANGED_RANGE))) {
       unit.mp -= area.mana;
+      unit.enemyReady = at + (area.cooldown ?? DEFAULT_ENEMY_AREA_COOLDOWN);
       for (const target of enemies(actor)) strike(actor, target, area.damage, !!enemy.burnAll, "skill", enemy.burnAll ? "Burn All" : "Slash All");
       unit.next = at + actionDuration(stats(actor).speed); return true;
     }
@@ -273,11 +276,12 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
         if (protectedBackRow(index) && unit.fighter.stats.range !== "range") return unit.x;
         let reach = basicRange(index);
         const native = unit.fighter.enemy;
-        if ((native?.bubbleBeam && unit.mp >= native.bubbleBeam.mana) || (native?.skill?.kind === "shot" && unit.mp >= native.skill.mana) || (native?.burnAll && unit.mp >= native.burnAll.mana) || (native?.slashAll && unit.mp >= native.slashAll.mana)) reach = Math.max(reach, PVP_RANGED_RANGE);
+        const area = native?.burnAll ?? native?.slashAll;
+        if ((native?.bubbleBeam && unit.mp >= native.bubbleBeam.mana) || (native?.skill?.kind === "shot" && unit.mp >= native.skill.mana) || (area && at + 1e-8 >= unit.enemyReady && unit.mp >= area.mana)) reach = Math.max(reach, PVP_RANGED_RANGE);
         const definitions = unit.fighter.weapon ? skills[unit.fighter.weapon] : [];
         for (const slot of [0, 1]) {
           const skill = definitions[slot];
-          if (skill && !skill.passive && (slot === 0 || (unit.fighter.skill2Unlocked && unit.fighter.skill2Enabled !== false)) && unit.mp >= skill.mpCost && unit.hp > skill.hpCost && at >= unit.ready[slot] && rangedSkills.has(skill.id)) reach = Math.max(reach, skillRange(skill));
+          if (skill && !skill.passive && (slot === 0 || activeSkill2(unit.fighter)) && unit.mp >= skill.mpCost && unit.hp > skill.hpCost && at >= unit.ready[slot] && rangedSkills.has(skill.id)) reach = Math.max(reach, skillRange(skill));
         }
         const distance = units[target].x - unit.x;
         const travel = Math.min(PVP_WALK_SPEED * MOVE_TICK, Math.max(0, Math.abs(distance) - reach) / (adventure ? 1 : 2));
@@ -308,7 +312,7 @@ export function simulateDuel(fighters: DuelFighter[], roll = () => randomInt(1_0
     if (enemyAction(next.index)) continue;
     const definitions = unit.fighter.weapon ? skills[unit.fighter.weapon] : [];
     const skill2 = definitions[1];
-    const skill2Enabled = unit.fighter.skill2Unlocked && unit.fighter.skill2Enabled !== false;
+    const skill2Enabled = activeSkill2(unit.fighter);
     const savingMana = savesManaForSkill2(skill2, skill2Enabled, unit.mp, unit.fighter.stats.mp, unit.hp, unit.ready[1], at)
       && !!skill2 && eligible(next.index, skill2);
     let cast = false;

@@ -10,6 +10,7 @@ export interface EconomySettings {
   levelExp: number[];
   artifactEnhancements: UpgradeStep[];
   characterUpgrades: Record<string, UpgradeStep[]>;
+  characterUpgradeCostMultiplier: number;
   skillUnlockCost: number;
 }
 export const defaultEconomy: EconomySettings = {
@@ -17,14 +18,20 @@ export const defaultEconomy: EconomySettings = {
   levelExp: Array.from({ length: 28 }, (_, index) => 10 * 2 ** index),
   artifactEnhancements: Array.from({ length: 20 }, () => ({ cost: 1000, gain: 2 })),
   characterUpgrades: Object.fromEntries(Object.entries(characterUpgrades).map(([weapon, upgrade]) => [weapon, Array.from({ length: 20 }, () => ({ cost: 1000, gain: upgrade.amount }))])),
+  characterUpgradeCostMultiplier: 1,
   skillUnlockCost: 1000,
 };
 const legacyCache = new WeakMap<object, EconomySettings>();
 /** Translate previously saved multiplier settings into editable direct rows. */
 export function normalizeEconomy(input?: unknown): EconomySettings {
   if (!input || typeof input !== "object") return defaultEconomy;
-  if ("levelExp" in input) return input as EconomySettings;
   const cached = legacyCache.get(input); if (cached) return cached;
+  if ("levelExp" in input) {
+    if ("characterUpgradeCostMultiplier" in input) return input as EconomySettings;
+    const result = { ...input, characterUpgradeCostMultiplier: 1 } as EconomySettings;
+    legacyCache.set(input, result);
+    return result;
+  }
   const old = input as { shopPrices?: Record<string, number>; expGrowth?: number; artifactEnhanceMultiplier?: number; characterUpgradeMultiplier?: number; skillUnlockCost?: number };
   const result = structuredClone(defaultEconomy);
   result.shopPrices = { ...result.shopPrices, ...old.shopPrices };
@@ -50,12 +57,16 @@ export const artifactPrice = (stat: string) => economySettings().shopPrices[stat
 export const artifactEnhanceCost = (level: number) => upgradeStep(economySettings().artifactEnhancements, level).cost;
 export const artifactEnhanceGain = (level: number) => upgradeStep(economySettings().artifactEnhancements, level).gain;
 export const artifactEnhanceBonus = (level: number) => upgradeBonus(economySettings().artifactEnhancements, level);
-export const characterUpgradeCost = (level: number, weapon: WeaponType = "sword-and-shield") => upgradeStep(economySettings().characterUpgrades[weapon], level).cost;
+export function characterUpgradeCost(level: number, weapon: WeaponType = "sword-and-shield") {
+  const settings = economySettings();
+  return Math.round(upgradeStep(settings.characterUpgrades[weapon], level).cost * settings.characterUpgradeCostMultiplier);
+}
 export const characterUpgradeGain = (weapon: WeaponType, level: number) => upgradeStep(economySettings().characterUpgrades[weapon], level).gain;
 export const characterUpgradeBonus = (weapon: WeaponType, level: number) => upgradeBonus(economySettings().characterUpgrades[weapon], level);
 export const skillUnlockCost = () => economySettings().skillUnlockCost;
 export function validateEconomy(input: unknown): EconomySettings {
-  const value = input as EconomySettings;
+  const value = input && typeof input === "object" && !Array.isArray(input) && "levelExp" in input
+    ? normalizeEconomy(input) : input as EconomySettings;
   const integer = (n: unknown, min: number, max: number) => typeof n === "number" && Number.isSafeInteger(n) && n >= min && n <= max;
   const steps = (rows: unknown): rows is UpgradeStep[] => Array.isArray(rows) && rows.length >= 1 && rows.length <= 1000 && rows.every(row => row && typeof row === "object" && Object.keys(row).sort().join() === "cost,gain" && integer(row.cost, 0, 1_000_000_000) && integer(row.gain, 0, 10000));
   if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join() !== Object.keys(defaultEconomy).sort().join()
@@ -64,6 +75,11 @@ export function validateEconomy(input: unknown): EconomySettings {
     || !steps(value.artifactEnhancements) || !value.characterUpgrades || Object.keys(value.characterUpgrades).sort().join() !== Object.keys(characterUpgrades).sort().join()
     || !Object.values(value.characterUpgrades).every(steps) || !integer(value.skillUnlockCost, 0, 1_000_000)) {
     throw new HttpError(400, "Provide 1-1000 rows per table. EXP must be whole amounts from 1 to 2,147,483,647; upgrade costs 0-1 billion gold; stat gains 0-10,000; shop and skill prices 0-1,000,000.");
+  }
+  const multiplier = value.characterUpgradeCostMultiplier;
+  if (!Number.isFinite(multiplier) || multiplier < 0 || multiplier > 1_000_000_000
+    || Object.values(value.characterUpgrades).some(rows => rows.some(row => Math.round(row.cost * multiplier) > 1_000_000_000))) {
+    throw new HttpError(400, "Enter a nonnegative character upgrade multiplier that keeps every upgrade cost at or below 1 billion gold.");
   }
   return structuredClone(value);
 }

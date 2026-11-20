@@ -4,7 +4,7 @@ import { requireAuth } from "../middlewares/require-auth.js";
 import { isAllowedOrigin } from "../config/origin.js";
 import { HttpError } from "../utils/http-error.js";
 import { realtimeBus } from "../services/realtime-bus.js";
-import { listPvp, createPvp, joinPvp, selectPvp, readyPvp, pvpState, leavePvp, returnToPvp, pvpChat, sendPvpChat } from "../repositories/pvp.repository.js";
+import { listPvp, createPvp, joinPvp, selectPvp, readyPvp, setPvpSkill2, pvpState, leavePvp, returnToPvp, pvpChat, sendPvpChat } from "../repositories/pvp.repository.js";
 
 export const pvpRouter = Router();
 pvpRouter.use(requireAuth);
@@ -43,6 +43,11 @@ pvpRouter.post("/:code/ready", async (req, res) => {
   res.json({ data: await readyPvp(req.session.user!.id, String(req.params.code), req.body.ready) });
 });
 pvpRouter.post("/:code/leave", async (req, res) => { res.json({ data: await leavePvp(req.session.user!.id, String(req.params.code)) }); });
+pvpRouter.post("/:code/skill-2", async (req, res) => {
+  const { fighterId, enabled } = req.body ?? {};
+  if (typeof fighterId !== "string" || !fighterId || fighterId.length > 100 || typeof enabled !== "boolean") throw new HttpError(400, "Provide a fighter and a Skill 2 setting");
+  res.json({ data: await setPvpSkill2(req.session.user!.id, String(req.params.code), fighterId, enabled) });
+});
 pvpRouter.post("/:code/return", async (req, res) => { res.json({ data: await returnToPvp(req.session.user!.id, String(req.params.code)) }); });
 pvpRouter.get("/:code/chat", async (req, res) => { res.json({ data: await pvpChat(req.session.user!.id, String(req.params.code)) }); });
 pvpRouter.post("/:code/chat", rateLimit({

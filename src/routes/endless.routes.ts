@@ -3,7 +3,7 @@ import { rateLimit } from "express-rate-limit";
 import { requireAuth } from "../middlewares/require-auth.js";
 import { isAllowedOrigin } from "../config/origin.js";
 import { HttpError } from "../utils/http-error.js";
-import { endlessHome, startEndless, prepareEndlessWave, resolveEndlessWave, retireEndless, endlessLeaderboard, endlessSettings, saveEndlessSettings } from "../repositories/endless.repository.js";
+import { endlessHome, startEndless, prepareEndlessWave, resolveEndlessWave, setEndlessSkill2, retireEndless, endlessLeaderboard, endlessSettings, saveEndlessSettings } from "../repositories/endless.repository.js";
 import { defaultEnemies, enemies, enemyLocations } from "../models/enemy.js";
 
 export const endlessRouter = Router();
@@ -27,6 +27,11 @@ endlessRouter.post("/start", async (req, res) => {
 });
 endlessRouter.param("id", (_req, _res, next, id: string) => { if (!/^[a-z0-9]{20,30}$/.test(id)) throw new HttpError(400, "Choose a valid Endless run"); next(); });
 endlessRouter.post("/:id/wave", async (req, res) => { res.json({ data: await prepareEndlessWave(req.session.user!.id, String(req.params.id)) }); });
+endlessRouter.post("/:id/skill-2", async (req, res) => {
+  const { wave, fighterId, enabled } = req.body ?? {};
+  if (!Number.isSafeInteger(wave) || wave < 1 || typeof fighterId !== "string" || !fighterId || fighterId.length > 100 || typeof enabled !== "boolean") throw new HttpError(400, "Provide a checkpoint, a fighter, and a Skill 2 setting");
+  res.json({ data: await setEndlessSkill2(req.session.user!.id, String(req.params.id), wave, fighterId, enabled) });
+});
 endlessRouter.post("/:id/resolve", async (req, res) => {
   if (!Number.isSafeInteger(req.body?.wave) || req.body.wave < 1 || req.body.wave > 2147483647) throw new HttpError(400, "Choose a valid wave");
   res.json({ data: await resolveEndlessWave(req.session.user!.id, String(req.params.id), req.body.wave) });

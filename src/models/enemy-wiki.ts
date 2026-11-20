@@ -1,4 +1,4 @@
-import { enemies, enemyPools, enemyRewards, type EnemyType, type EnemyStats } from "./enemy.js";
+import { DEFAULT_ENEMY_AREA_COOLDOWN, enemies, enemyPools, enemyRewards, type EnemyType, type EnemyStats } from "./enemy.js";
 import { deepSeaFloors } from "./deepsea.js";
 import { actionDuration } from "./action-timing.js";
 
@@ -9,7 +9,7 @@ function enemySkills(stats: EnemyStats): WikiSkill[] {
   if (stats.blockChance) result.push({ name: "Block", description: `${Math.round(stats.blockChance * 100)}% chance to block direct attacks.`, mana: 0, cooldown: null });
   if (stats.bubbleBeam) result.push({ name: "Bubble Beam", description: "Hits the first living character. Damage is reduced by special defense.", ...stats.bubbleBeam, damageType: "Magic" });
   const area = stats.burnAll ?? stats.slashAll;
-  if (area) result.push({ name: stats.burnAll ? "Burn All" : "Slash All", description: "Hits every living character. Replaces a basic attack while enough mana remains.", ...area, damageType: stats.burnAll ? "Magic" : "Physical", cooldown: actionDuration(stats.speed) });
+  if (area) result.push({ name: stats.burnAll ? "Burn All" : "Slash All", description: "Hits every living character when the skill is ready and enough mana remains.", ...area, damageType: stats.burnAll ? "Magic" : "Physical", cooldown: area.cooldown ?? DEFAULT_ENEMY_AREA_COOLDOWN });
   const skill = stats.skill;
   if (skill) {
     const descriptions = {

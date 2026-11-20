@@ -13,6 +13,9 @@ function format(key: string, value: number) {
 export function generatePatchNotes(before: BalanceConfig, after: BalanceConfig): string[] {
   const lines: string[] = [];
   const oldEconomy = normalizeEconomy(before.economy), newEconomy = normalizeEconomy(after.economy);
+  if (oldEconomy.characterUpgradeCostMultiplier !== newEconomy.characterUpgradeCostMultiplier) {
+    lines.push(`Character upgrade gold cost multiplier: ${oldEconomy.characterUpgradeCostMultiplier}× to ${newEconomy.characterUpgradeCostMultiplier}×`);
+  }
   if (oldEconomy.skillUnlockCost !== newEconomy.skillUnlockCost) lines.push(`Skill 2 unlock cost: ${oldEconomy.skillUnlockCost} to ${newEconomy.skillUnlockCost} gold`);
   for (const [stat, price] of Object.entries(newEconomy.shopPrices)) if (oldEconomy.shopPrices[stat] !== price) lines.push(`${name(stat)} artifact shop price: ${oldEconomy.shopPrices[stat]} to ${price} gold`);
   if (oldEconomy.levelExp.length !== newEconomy.levelExp.length) lines.push(`Configured EXP level rows: ${oldEconomy.levelExp.length} to ${newEconomy.levelExp.length}`);

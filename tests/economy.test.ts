@@ -70,3 +70,21 @@ test("one-EXP levels and large plus levels are calculated without per-level loop
     assert.equal(artifactBonus(2147483647), 4294967299);
   });
 });
+
+test("one saved multiplier controls character costs across types and upgrade levels", () => {
+  const { characterUpgradeCostMultiplier, ...oldSettings } = structuredClone(defaultEconomy);
+  assert.equal(characterUpgradeCostMultiplier, 1);
+  oldSettings.characterUpgrades.axe = [{ cost: 101, gain: 4 }];
+  const settings = normalizeEconomy(oldSettings);
+  assert.equal(settings.characterUpgradeCostMultiplier, 1);
+  const before = { ...defaultBalance(), economy: settings };
+  const after = { ...before, economy: validateEconomy({ ...settings, characterUpgradeCostMultiplier: 1.5 }) };
+  withBalance(after, () => {
+    assert.equal(characterUpgradeCost(100, "axe"), 152);
+    assert.equal(characterUpgradeCost(0, "sword-and-shield"), 1500);
+    assert.equal(artifactEnhanceCost(0), 1000);
+  });
+  assert.deepEqual(generatePatchNotes(before, after), ["Character upgrade gold cost multiplier: 1× to 1.5×"]);
+  assert.throws(() => validateEconomy({ ...settings, characterUpgradeCostMultiplier: -1 }));
+  assert.throws(() => validateEconomy({ ...settings, characterUpgradeCostMultiplier: 1_000_001 }));
+});

@@ -17,7 +17,7 @@ test("Demon Prince burns all living allies twice, uses magic defense, then basic
   assert.equal(burns.length, 6);
   for (let i = 0; i < 3; i++) {
     const hits = burns.filter((step) => step.characterId === `ally-${i}`);
-    assert.deepEqual(hits.map((step) => step.at), [1, 2]);
+    assert.deepEqual(hits.map((step) => step.at), [1, 11]);
     assert.ok(hits.every((step) => step.damage === Math.max(1, 20 - team[i].stats.magicDef)));
   }
   assert.ok(battle.steps.some((step) => step.actor === "enemy" && step.kind === "attack" && step.at === 3));

@@ -4,11 +4,13 @@ import { currentBalance } from "./balance-context.js";
 export interface EnemyStats extends CharacterStats {
   fishpeople?: boolean;
   skill?: { kind: "guard" | "shield" | "shot" | "heal-all" | "heal-self" | "summon"; name: string; mana: number; cooldown: number; damage?: number; magic?: boolean; farthest?: boolean; duration?: number };
-  burnAll?: { damage: number; mana: number };
-  slashAll?: { damage: number; mana: number };
+  burnAll?: { damage: number; mana: number; cooldown?: number };
+  slashAll?: { damage: number; mana: number; cooldown?: number };
   blockChance?: number;
   bubbleBeam?: { damage: number; mana: number; cooldown: number };
 }
+
+export const DEFAULT_ENEMY_AREA_COOLDOWN = 10;
 
 export const defaultEnemies = {
   "mushroom-fighter": { name: "Mushroom Fighter", stats: { hp: 250, mp: 0, atk: 25, def: 5, magic: 0, magicDef: 0, speed: 0, range: "melee" }, gold: 60 },
@@ -27,11 +29,11 @@ export const defaultEnemies = {
   "fishpeople-rifler": { name: "Fishpeople Rifler", stats: { hp: 300, mp: 50, atk: 40, def: 5, magic: 0, magicDef: 5, speed: 0, range: "melee", fishpeople: true, skill: { kind: "shot", name: "Rifle Shot", mana: 25, cooldown: 4, damage: 40 } }, gold: 250 },
   "fishpeople-baron": { name: "Fishpeople Baron", stats: { hp: 500, mp: 50, atk: 40, def: 5, magic: 0, magicDef: 5, speed: 0, range: "melee", fishpeople: true, skill: { kind: "heal-self", name: "Baron Heal", mana: 10, cooldown: 5 } }, gold: 250 },
   "fishpeople-lord": { name: "Fish Emperor Lord", stats: { hp: 1500, mp: 50, atk: 40, def: 15, magic: 0, magicDef: 15, speed: 0, range: "melee", fishpeople: true, skill: { kind: "summon", name: "Summon Knight", mana: 25, cooldown: 10 } }, gold: 1000 },
-  "demon-prince": { name: "Demon Prince", stats: { hp: 1000, mp: 100, atk: 15, def: 0, magic: 0, magicDef: 0, speed: 0, range: "melee", burnAll: { damage: 20, mana: 40 } }, gold: 200 },
+  "demon-prince": { name: "Demon Prince", stats: { hp: 1000, mp: 100, atk: 15, def: 0, magic: 0, magicDef: 0, speed: 0, range: "melee", burnAll: { damage: 20, mana: 40, cooldown: DEFAULT_ENEMY_AREA_COOLDOWN } }, gold: 200 },
   gladiator: { name: "Gladiator", stats: { hp: 150, mp: 0, atk: 15, def: 0, magic: 0, magicDef: 0, speed: 0, range: "melee" }, gold: 30 },
   spearman: { name: "Spearman", stats: { hp: 150, mp: 0, atk: 25, def: 0, magic: 0, magicDef: 0, speed: 0, range: "melee" }, gold: 30 },
   assassin: { name: "Assassin", stats: { hp: 120, mp: 0, atk: 25, def: 0, magic: 0, magicDef: 0, speed: 30, range: "melee" }, gold: 30 },
-  zugwang: { name: "Zugwang", stats: { hp: 1000, mp: 100, atk: 15, def: 0, magic: 0, magicDef: 0, speed: 0, range: "melee", slashAll: { damage: 20, mana: 40 } }, gold: 200 },
+  zugwang: { name: "Zugwang", stats: { hp: 1000, mp: 100, atk: 15, def: 0, magic: 0, magicDef: 0, speed: 0, range: "melee", slashAll: { damage: 20, mana: 40, cooldown: DEFAULT_ENEMY_AREA_COOLDOWN } }, gold: 200 },
   "crab-day": { name: "Crab", stats: { hp: 120, mp: 0, atk: 15, def: 5, magic: 0, magicDef: 0, speed: 15, range: "melee" }, gold: 20 },
   "crab-night": { name: "Crab", stats: { hp: 80, mp: 0, atk: 15, def: 5, magic: 0, magicDef: 0, speed: 0, range: "melee" }, gold: 20 },
   hermit: { name: "Hermit", stats: { hp: 150, mp: 0, atk: 15, def: 5, magic: 0, magicDef: 15, speed: 0, range: "melee", blockChance: 0.3 }, gold: 20 },
