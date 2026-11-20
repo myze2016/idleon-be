@@ -2,7 +2,7 @@ import { playerIdentity, playerNameSelect } from "../models/player-name.js";
 import { randomInt } from "node:crypto";
 import { prisma } from "../lib/prisma.js";
 import { Prisma, type EndlessRun } from "../generated/prisma/client.js";
-import { defaultEndless, endlessDistanceStats, endlessSpawnInterval, ENDLESS_CHECKPOINT_SECONDS, ENDLESS_METERS_PER_SECOND, validateEndless, type EndlessConfig } from "../models/endless.js";
+import { defaultEndless, endlessDistanceStats, endlessSpawnInterval, ENDLESS_CHECKPOINT_SECONDS, ENDLESS_METERS_PER_SECOND, ENDLESS_SPAWN_BATCH_SIZE, validateEndless, type EndlessConfig } from "../models/endless.js";
 import { currentBalance, withBalance, type BalanceConfig } from "../models/balance-context.js";
 import { defaultBalance, normalizeBalance } from "../services/balance.service.js";
 import { effectiveStats } from "../models/artifact.js";
@@ -87,12 +87,13 @@ export async function prepareEndlessWave(userId: string, id: string) {
     const capacity = Math.max(0, 40 - team.filter(member => member.userId !== userId).length);
     let spawnAt = (settings as EndlessConfig & { spawnDelay?: number }).spawnDelay ?? 0;
     for (; spawnAt < ENDLESS_CHECKPOINT_SECONDS - 1e-8; spawnAt += endlessSpawnInterval(() => randomInt(1_000_001) / 1_000_000)) {
-      if (incoming.length >= capacity) continue;
-      const at = spawnAt;
-      const type = settings.enemyPool[randomInt(settings.enemyPool.length)];
-      const enemy = withBalance(balance, () => enemies[type]);
-      const stats = endlessDistanceStats(balance.enemies[type], run.bestWave + at * ENDLESS_METERS_PER_SECOND, settings.statMultiplier);
-      incoming.push({ id: `endless-${run.wave}-${incoming.length}`, userId: `enemy:${userId}`, name: enemy.name, enemyType: type, enemy: stats, stats, startX: front + 800, spawnAt: at });
+      for (let member = 0; member < ENDLESS_SPAWN_BATCH_SIZE && incoming.length < capacity; member++) {
+        const at = spawnAt;
+        const type = settings.enemyPool[randomInt(settings.enemyPool.length)];
+        const enemy = withBalance(balance, () => enemies[type]);
+        const stats = endlessDistanceStats(balance.enemies[type], run.bestWave + at * ENDLESS_METERS_PER_SECOND, settings.statMultiplier);
+        incoming.push({ id: `endless-${run.wave}-${incoming.length}`, userId: `enemy:${userId}`, name: enemy.name, enemyType: type, enemy: stats, stats, startX: front + 800 + member * 72, spawnOffset: member * 72, spawnAt: at });
+      }
     }
     const result = withBalance(balance, () => {
       return simulateDuel([...team, ...incoming], undefined, ENDLESS_CHECKPOINT_SECONDS);

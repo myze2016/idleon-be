@@ -19,16 +19,16 @@ test("Endless validates the spawn pool and multiplier and preserves enemy mechan
   assert.equal(base.hp, 550);
 });
 
-test("Endless scales by distance and keeps spawn intervals between 2 and 3 seconds", () => {
+test("Endless scales by distance and keeps spawn intervals between 6 and 8 seconds", () => {
   const base = defaultEnemies.slime.stats;
   assert.deepEqual(endlessDistanceStats(base, 0, 2), base);
   for (const distance of [-1, 100, 200, 499.99]) assert.deepEqual(endlessDistanceStats(base, distance, 2), base);
   assert.equal(endlessDistanceStats(base, 500, 2).hp, base.hp * 2);
   assert.equal(endlessDistanceStats(base, 999.99, 2).hp, base.hp * 2);
   assert.equal(endlessDistanceStats(base, 1000, 2).hp, base.hp * 4);
-  assert.equal(endlessSpawnInterval(() => 0), 2);
-  assert.equal(endlessSpawnInterval(() => 0.5), 2.5);
-  assert.equal(endlessSpawnInterval(() => 1), 3);
+  assert.equal(endlessSpawnInterval(() => 0), 6);
+  assert.equal(endlessSpawnInterval(() => 0.5), 7);
+  assert.equal(endlessSpawnInterval(() => 1), 8);
 });
 
 test("continuous combat spawns enemies while others are alive and preserves combat across checkpoints", () => {
@@ -89,4 +89,21 @@ test("Endless uses adventure back-row melee protection and mana regeneration", (
   assert.equal(mana.mp[0], 5); assert.equal(mana.mp[3], 10);
   const exposed = simulateDuel([...team.map((member, index) => ({ ...member, hp: index < 3 ? 0 : stats.hp })), enemy], () => .99, 4);
   assert.ok(exposed.steps.some(step => step.actor === 3 && step.kind === "attack"));
+});
+
+test("Endless keeps six characters in order and every enemy ahead across checkpoints", () => {
+  const stats = { hp: 10000, mp: 100, atk: 10, def: 100, magic: 0, magicDef: 100, speed: 0, range: "melee" as const };
+  const party = Array.from({ length: 6 }, (_, index) => ({ id: `party-${index}`, userId: "player", name: "Knight", stats, weapon: "sword-and-shield" as const, startX: [400, 500, 100, 450, 320, 240][index], mp: 0 }));
+  const enemy = { id: "behind", userId: "enemy", name: "Slime", stats, enemyType: "slime" as const, enemy: stats, startX: 50 };
+  const first = simulateDuel([...party, enemy, { ...enemy, id: "later", spawnAt: 6, spawnOffset: 72 }], () => .99, 12);
+  assert.equal(first.steps.filter(step => step.kind === "spawn" && step.actor === 7).length, 1);
+  assert.ok(first.steps.filter(step => step.at < 6).every(step => step.actor !== 7 && !step.targets.includes(7)));
+  const second = simulateDuel(first.continuation!, () => .99, 12);
+  for (const result of [first, second]) for (const step of result.steps) {
+    for (let slot = 1; slot < 6; slot++) assert.ok(Math.abs(step.x[slot - 1] - step.x[slot] - 64) < 1e-6, "party lost formation");
+    for (let index = 6; index < result.fighters.length; index++) {
+      if ((result.fighters[index].spawnAt ?? 0) <= step.at && step.hp[index] > 0) assert.ok(step.x[index] >= step.x[0] + 70 - 1e-6, "enemy crossed behind the party");
+    }
+  }
+  for (let slot = 0; slot < 3; slot++) assert.ok(first.steps.some(step => step.actor === slot && step.kind === "attack"), "front-row member did not fight");
 });

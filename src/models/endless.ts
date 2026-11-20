@@ -6,11 +6,12 @@ export const defaultEndless: EndlessConfig = { enabled: true, enemyPool: ["slime
 export const ENDLESS_CHECKPOINT_SECONDS = 12;
 export const ENDLESS_METERS_PER_SECOND = 10;
 export const ENDLESS_STAT_STEP_METERS = 500;
+export const ENDLESS_SPAWN_BATCH_SIZE = 3;
 export function endlessDistanceStats(base: EnemyStats, distance: number, multiplier: number) {
   return endlessEnemyStats(base, 1 + Math.floor(Math.max(0, distance) / ENDLESS_STAT_STEP_METERS), multiplier);
 }
 export function endlessSpawnInterval(roll = Math.random) {
-  return 2 + roll();
+  return 6 + roll() * 2;
 }
 export function validateEndless(input: unknown): EndlessConfig {
   const value = input as EndlessConfig;

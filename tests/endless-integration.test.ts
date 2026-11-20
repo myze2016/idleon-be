@@ -42,6 +42,13 @@ test("Endless admin controls, verified distance and continuous spawns, snapshots
     assert.equal(wave.pending.enemyType, "slime");
     assert.equal(wave.pending.result.duration, 12);
     assert.ok(wave.pending.result.fighters.length > 2);
+    const initialBatch = wave.pending.result.fighters.filter((fighter: { enemyType?: string; spawnAt?: number }) => fighter.enemyType && fighter.spawnAt === 0);
+    assert.equal(initialBatch.length, 3);
+    assert.equal(new Set(initialBatch.map((fighter: { startX: number }) => fighter.startX)).size, 3);
+    const laterBatch = wave.pending.result.fighters.filter((fighter: { enemyType?: string; spawnAt?: number }) => fighter.enemyType && fighter.spawnAt! > 0);
+    assert.equal(laterBatch.length, 3);
+    assert.equal(new Set(laterBatch.map((fighter: { spawnAt: number }) => fighter.spawnAt)).size, 1);
+    assert.ok(laterBatch[0].spawnAt >= 6 && laterBatch[0].spawnAt <= 8);
     assert.deepEqual((await post(one, `${run.id}/wave`).expect(200)).body.data.pending, wave.pending);
     await post(one, `${run.id}/resolve`, { wave: 1, bestWave: 99999 }).expect(409);
     await finish(run.id);
@@ -61,7 +68,7 @@ test("Endless admin controls, verified distance and continuous spawns, snapshots
     assert.equal(incoming.stats.hp, Math.ceil(40 * 1.2 ** Math.floor((120 + incoming.spawnAt * 10) / 500)));
     const lastSpawn = Math.max(...wave.pending.result.fighters.filter((fighter: { enemyType?: string }) => fighter.enemyType).map((fighter: { spawnAt: number }) => fighter.spawnAt));
     const gap = 12 + incoming.spawnAt - lastSpawn;
-    assert.ok(gap >= 2 - 1e-8 && gap <= 3 + 1e-8);
+    assert.ok(gap >= 6 - 1e-8 && gap <= 8 + 1e-8);
     assert.equal(next.pending.result.fighters[0].stats.hp, 300);
     assert.equal(next.pending.result.fighters[0].hp, after.team[0].hp);
     await finish(run.id);
