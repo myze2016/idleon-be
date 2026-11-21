@@ -103,7 +103,8 @@ test("combat skills wait until an approaching enemy reaches the visible battlefi
   assert.ok(cast);
   const position = result.movement.findLast(frame => frame.at <= cast.at)!;
   assert.ok(position.x[1] - position.x[0] <= COMBAT_VISIBLE_DISTANCE + 1e-5);
-  assert.ok(position.x[1] - position.x[0] > PVP_RANGED_RANGE);
+  assert.equal(COMBAT_VISIBLE_DISTANCE, PVP_RANGED_RANGE);
+  assert.ok(result.movement.some(frame => frame.at < cast.at && frame.x[1] - frame.x[0] > PVP_RANGED_RANGE));
 });
 
 test("an archer walks during the approach and stops once the target is in range in every mode", () => {

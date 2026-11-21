@@ -3,7 +3,31 @@ import { test } from "node:test";
 import { COMBAT_ENCOUNTER_DISTANCE, simulateDuel, PVP_MELEE_RANGE, PVP_RANGED_RANGE, type DuelFighter } from "../src/services/pvp-battle.service.js";
 import { baseStats } from "../src/models/character-stats.js";
 import type { WeaponType } from "../src/models/character.js";
+import { defaultEnemies } from "../src/models/enemy.js";
 const fighter = (userId: string, weapon: WeaponType, unlocked = false, overrides = {}): DuelFighter => ({ userId, id: userId, name: userId, weapon, skill2Unlocked: unlocked, stats: { ...baseStats[weapon], ...overrides } });
+
+test("area skills cannot hit an offscreen target when another enemy is in range", () => {
+  const player = { ...fighter("team", "ice-staff", true, { hp: 1000, mp: 100 }), startX: 60 };
+  const near = { ...fighter("opponent", "sword-and-shield", false, { hp: 5000, mp: 0 }), id: "near", startX: 650 };
+  const far = { ...near, id: "far", startX: 3000 };
+  for (const [checkpoint, expedition] of [[undefined, false], [undefined, true], [12, false]] as const) {
+    const battle = simulateDuel([player, near, far], () => 0.99, checkpoint, { expedition });
+    const firstFreeze = battle.steps.find(step => step.label === "Freeze All")!;
+    assert.ok(firstFreeze);
+    assert.ok(Math.abs(firstFreeze.x[0] - firstFreeze.x[2]) > PVP_RANGED_RANGE);
+    for (const step of battle.steps.filter(step => step.label === "Freeze All")) {
+      assert.ok(step.targets.every(target => Math.abs(step.x[step.actor] - step.x[target]) <= PVP_RANGED_RANGE + 1e-5));
+    }
+  }
+
+  const stats = defaultEnemies["demon-prince"].stats;
+  const boss: DuelFighter = { id: "boss", userId: "opponent", name: "Demon Prince", enemy: stats, stats, startX: 650 };
+  const result = simulateDuel([player, { ...player, id: "rear", startX: -2000 }, boss], () => 0.99);
+  const burns = result.steps.filter(step => step.label === "Burn All");
+  assert.ok(burns.length);
+  assert.ok(Math.abs(burns[0].x[2] - burns[0].x[1]) > PVP_RANGED_RANGE);
+  assert.ok(burns.every(step => step.targets.every(target => Math.abs(step.x[2] - step.x[target]) <= PVP_RANGED_RANGE + 1e-5)));
+});
 
 test("PvP uses both characters' stats, starts full, and records a valid shared result", () => {
   const result = simulateDuel([fighter("a", "axe", false, { atk: 100 }), fighter("b", "bow")], () => 0.99);
@@ -27,6 +51,8 @@ test("Both duelists can cast, regenerate mana, apply statuses, and use unlocked 
   const frost = simulateDuel([fighter("ice", "ice-staff", true, { hp: 1000 }), fighter("rifle", "rifle", true, { hp: 1000 })], () => 0.99);
   assert.ok(frost.steps.some((step) => step.label === "Freeze All"));
   assert.ok(frost.steps.some((step) => step.label === "Freeze All" && ((step.statuses?.[1] ?? 0) & 4) !== 0));
+  const freezeAll = frost.steps.find(step => step.label === "Freeze All")!;
+  assert.deepEqual(freezeAll.statusEnds?.[1], { freeze: freezeAll.at + 2 });
   assert.ok(frost.steps.some((step) => step.label === "Long Shot"));
   assert.ok(frost.steps.some((step) => step.kind === "mana"));
   const bleed = simulateDuel([fighter("axe", "dual-axe", true, { hp: 1000 }), fighter("bow", "bow", true, { hp: 1000 })], () => 0.99);
@@ -36,6 +62,13 @@ test("Both duelists can cast, regenerate mana, apply statuses, and use unlocked 
   assert.ok(bleed.steps.some((step) => step.kind === "attack" && step.actor === 0 && ((step.statuses?.[1] ?? 0) & 2) !== 0));
   assert.ok(bleed.steps.some((step) => step.label === "Axe Frenzy"));
   assert.ok(bleed.steps.some((step) => step.label.startsWith("Shackle")));
+  const shackle = bleed.steps.find(step => step.label.startsWith("Shackle"))!;
+  assert.equal(shackle.statusEnds?.[0]?.stun, shackle.at + 1);
+  const frenzy = bleed.steps.find(step => step.label === "Axe Frenzy")!;
+  assert.equal(frenzy.statusEnds?.[0]?.burst, frenzy.at + 3);
+  const poison = bleed.steps.find(step => step.kind === "attack" && step.actor === 1 && step.statusEnds?.[0]?.poison)!;
+  assert.equal(poison.statusEnds?.[0]?.poison, poison.at + 5);
+  assert.ok(bleed.steps.some(step => step.statusEnds?.[1]?.bleed === null));
   const shield = simulateDuel([fighter("shield", "sword-and-shield", true), fighter("axe", "axe")], () => 0);
   assert.ok(shield.steps.some((step) => step.kind === "block"));
   assert.ok(shield.steps.some((step) => step.kind === "counter"));
@@ -64,7 +97,11 @@ test("6v6 area skills target the opposing team while support heals teammates wit
   const result = simulateDuel([...make("a", ["staff", "wand", "glaive", "book", "ice-staff", "sword-and-shield"]), ...make("b", ["staff", "wand", "glaive", "book", "ice-staff", "sword-and-shield"])], () => 0.99);
   assert.ok(result.steps.every((step) => step.hp.length === 12 && step.mp.length === 12));
   const aoe = result.steps.filter((step) => step.actor === 0 && step.label === "Inferno");
-  assert.deepEqual(aoe.filter((step) => step.at === aoe[0].at).flatMap((step) => step.targets).sort((a, b) => a - b), [6, 7, 8, 9, 10, 11]);
+  const firstInferno = aoe[0];
+  assert.ok(firstInferno);
+  const beforeInferno = result.steps[result.steps.indexOf(firstInferno) - 1];
+  const inReach = [6, 7, 8, 9, 10, 11].filter(index => beforeInferno.hp[index] > 0 && Math.abs(firstInferno.x[index] - firstInferno.x[0]) <= PVP_RANGED_RANGE + 1e-5);
+  assert.deepEqual(aoe.filter(step => step.at === firstInferno.at).flatMap(step => step.targets).sort((a, b) => a - b), inReach);
   assert.ok(result.steps.some((step) => step.kind === "heal" && step.healing > 0 && !step.targets.includes(step.actor)));
   assert.ok(result.steps.some((step) => step.kind === "buff" && step.targets.some((target) => target !== step.actor)));
   assert.ok(result.steps.some((step) => step.label === "Bouncing Glaive"));

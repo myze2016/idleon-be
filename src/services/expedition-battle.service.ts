@@ -1,6 +1,6 @@
 import { enemies, type EnemyType } from "../models/enemy.js";
 import type { BattleStep, Fighter } from "./battle.service.js";
-import { PVP_MELEE_RANGE, simulateDuel, type DuelFighter, type DuelResult } from "./pvp-battle.service.js";
+import { PVP_MELEE_RANGE, simulateDuel, type DuelFighter, type DuelResult, type DuelStep } from "./pvp-battle.service.js";
 import { replayCombat, type LiveCombat } from "./live-combat.js";
 
 export function expeditionFighters(team: (Fighter & { name?: string })[], opponents: { id: string; type: EnemyType }[], approachDistance = PVP_MELEE_RANGE): DuelFighter[] {
@@ -18,15 +18,16 @@ export function expeditionFighters(team: (Fighter & { name?: string })[], oppone
 
 function expeditionMovement(result: DuelResult, initialCount: number) {
   const initial = result.steps[0];
-  const frames: { at: number; x: number[]; travel?: number; cameraWorld?: number }[] = [
+  const frames: { at: number; x: number[]; travel?: number; cameraWorld?: number; kind?: DuelStep["kind"]; label?: string }[] = [
     { at: 0, x: result.fighters.slice(0, initialCount).map(fighter => fighter.startX ?? 0),
       ...(initial?.cameraWorld && initial.cameraTravel ? { travel: 0, cameraWorld: initial.cameraWorld[0] - initial.cameraTravel[0] } : {}) },
   ];
   let casting = false;
   for (const step of result.steps) {
     const nowCasting = step.teamCasting?.some(Boolean) ?? false;
-    if (step.kind === "move" || nowCasting !== casting || step.x.length !== frames[frames.length - 1].x.length) {
-      frames.push({ at: step.at, x: step.x, travel: step.cameraTravel?.[0], cameraWorld: step.cameraWorld?.[0] });
+    if (step.kind === "move" || step.kind === "spawn" || nowCasting !== casting || step.x.length !== frames[frames.length - 1].x.length) {
+      frames.push({ at: step.at, x: step.x, travel: step.cameraTravel?.[0], cameraWorld: step.cameraWorld?.[0], kind: step.kind,
+        ...(step.kind === "move" && step.label === "Cast ended" ? { label: step.label } : {}) });
     }
     casting = nowCasting;
   }
@@ -62,6 +63,7 @@ function expeditionResult(result: DuelResult, team: Fighter[], opponentCount: nu
       enemyIndex, enemyHp: enemyHps[0], enemyHps, enemyMps: step.mp.slice(teamSize), teamHp: step.hp.slice(0, teamSize), teamMp: step.mp.slice(0, teamSize),
       teamCasting: step.teamCasting, castEndsAt: step.kind === "cast" && member !== undefined ? step.teamCasting?.[member]?.endsAt : undefined,
       ...(step.statuses ? { statuses: step.statuses } : {}),
+      ...(step.statusEnds ? { statusEnds: step.statusEnds } : {}),
       targetIds: step.targets.filter(target => target < teamSize).map(target => team[target].id),
     }];
   });

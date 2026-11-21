@@ -5,12 +5,12 @@ import { defaultBalance } from "./balance.service.js";
 import { COMBAT_ENCOUNTER_DISTANCE, COMBAT_VISIBLE_DISTANCE, PVP_RANGED_RANGE, simulateDuel, type DuelFighter, type DuelResult, type EndlessSpawnSchedule } from "./pvp-battle.service.js";
 
 export interface Skill2Change { fighterId: string; at: number; enabled: boolean }
-export const LIVE_COMBAT_RULES_VERSION = 15;
-export interface LiveCombat { seed: string; balance: BalanceConfig; fighters: DuelFighter[]; changes: Skill2Change[]; endlessSpawns?: EndlessSpawnSchedule; rulesVersion?: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | typeof LIVE_COMBAT_RULES_VERSION }
+export const LIVE_COMBAT_RULES_VERSION = 16;
+export interface LiveCombat { seed: string; balance: BalanceConfig; fighters: DuelFighter[]; changes: Skill2Change[]; endlessSpawns?: EndlessSpawnSchedule; rulesVersion?: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | typeof LIVE_COMBAT_RULES_VERSION }
 
 export function liveCombatDistances(rulesVersion: LiveCombat["rulesVersion"]) {
   return (rulesVersion ?? 0) >= 5
-    ? { rangedRange: PVP_RANGED_RANGE, encounterDistance: COMBAT_ENCOUNTER_DISTANCE, visibleDistance: COMBAT_VISIBLE_DISTANCE }
+    ? { rangedRange: PVP_RANGED_RANGE, encounterDistance: COMBAT_ENCOUNTER_DISTANCE, visibleDistance: (rulesVersion ?? 0) >= 16 ? COMBAT_VISIBLE_DISTANCE : 900 }
     : { rangedRange: rulesVersion === 4 ? 780 : 600, encounterDistance: rulesVersion === 4 ? 900 : 600, visibleDistance: Infinity };
 }
 export interface LivePvpResult extends DuelResult {
@@ -45,9 +45,9 @@ export function liveSkill2Controls(userId: string, live: LiveCombat) {
   }));
 }
 
-export function replayCombat(live: LiveCombat, continuousSeconds?: number, expedition = false): DuelResult {
+export function replayCombat(live: LiveCombat, continuousSeconds?: number, expedition = false, random?: () => number): DuelResult {
   let draw = 0;
-  const roll = () => createHmac("sha256", live.seed).update(String(draw++)).digest().readUInt32BE() / 2 ** 32;
+  const roll = random ?? (() => createHmac("sha256", live.seed).update(String(draw++)).digest().readUInt32BE() / 2 ** 32);
   const byFighter = new Map<string, Skill2Change[]>();
   for (const change of live.changes) {
     const history = byFighter.get(change.fighterId) ?? [];
@@ -65,6 +65,7 @@ export function replayCombat(live: LiveCombat, continuousSeconds?: number, exped
     pauseFormationDuringCast: live.rulesVersion === 13,
     spearCastCamera: live.rulesVersion === 14,
     unifiedMovement: (live.rulesVersion ?? 0) >= 15,
+    screenBoundCombat: (live.rulesVersion ?? 0) >= 16,
     endlessSpawns: live.endlessSpawns,
     ...liveCombatDistances(live.rulesVersion),
     skill2EnabledAt: (fighter, at) => latestSkill2Change(byFighter.get(fighter.id) ?? [], fighter.id, at)?.enabled,

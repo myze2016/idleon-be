@@ -2,7 +2,7 @@ import { Router } from "express";
 import { requireAuth } from "../middlewares/require-auth.js";
 import { isAllowedOrigin } from "../config/origin.js";
 import { HttpError } from "../utils/http-error.js";
-import { spawnEncounter, resolveEncounter, resolveEncounters, endExpedition, toggleExpeditionSkill2 } from "../repositories/expedition.repository.js";
+import { spawnEncounter, resolveEncounter, resolveEncounters, endExpedition, joinExpeditionCombat, toggleExpeditionSkill2 } from "../repositories/expedition.repository.js";
 import { isDeepSea } from "../models/deepsea.js";
 import { summonDemonPrince, refreshSpectators } from "../repositories/spectator.repository.js";
 
@@ -48,6 +48,14 @@ encounterRouter.post("/:id/skill-2", async (req, res) => {
   const id = String(req.params.id), { fighterId, enabled } = req.body ?? {};
   if (!id || id.length > 30 || typeof fighterId !== "string" || !fighterId || fighterId.length > 30 || typeof enabled !== "boolean") throw new HttpError(400, "Provide a fighter and a Skill 2 setting");
   res.json({ data: await toggleExpeditionSkill2(req.session.user!.id, id, fighterId, enabled) });
+});
+encounterRouter.post("/:id/arrivals", async (req, res) => {
+  const leaderId = String(req.params.id), ids = req.body?.encounterIds;
+  if (!leaderId || leaderId.length > 30 || !Array.isArray(ids) || !ids.length || ids.length > 32
+    || ids.some(id => typeof id !== "string" || !id || id.length > 30) || new Set(ids).size !== ids.length) {
+    throw new HttpError(400, "Choose enemies from the current expedition");
+  }
+  res.json({ data: await joinExpeditionCombat(req.session.user!.id, leaderId, ids) });
 });
 encounterRouter.post("/:id/resolve", async (req, res) => {
   res.json({ data: await resolveEncounter(req.session.user!.id, String(req.params.id)) });

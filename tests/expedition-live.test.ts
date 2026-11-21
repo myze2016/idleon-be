@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { prisma } from "../src/lib/prisma.js";
 import { withBalance } from "../src/models/balance-context.js";
-import { resolveEncounters, toggleExpeditionSkill2 } from "../src/repositories/expedition.repository.js";
+import { joinExpeditionCombat, resolveEncounters, toggleExpeditionSkill2 } from "../src/repositories/expedition.repository.js";
 import { defaultBalance } from "../src/services/balance.service.js";
 import type { BattleStep } from "../src/services/battle.service.js";
 
@@ -49,5 +49,37 @@ test("Expedition updates the remaining timeline and awards only the settled resu
     const nextPlayback = await resolveEncounters(user.id, [next.id], undefined, undefined, { disabledSkill2Ids: [] });
     assert.deepEqual(nextPlayback.initialTeamHp, [500]);
     assert.deepEqual(nextPlayback.initialTeamMp, [2]);
+  });
+});
+
+test("new enemies arrive in the active fight and settle with its original enemy exactly once", async () => {
+  const user = await prisma.user.create({ data: { username: "expedition_arrival", name: "Explorer", passwordHash: "unused" } });
+  const fighter = await prisma.character.create({ data: { userId: user.id, name: "Guardian", weapon: "sword_and_shield" } });
+  const encounters = await Promise.all(["slime", "slime"].map(enemyType => prisma.encounter.create({ data: {
+    userId: user.id, enemyType, teamIds: [fighter.id], location: "meadow",
+  } })));
+  const [first, second] = encounters;
+  const config = defaultBalance();
+  config.stats["sword-and-shield"].hp = 1000;
+  config.stats["sword-and-shield"].atk = 100;
+  config.enemies.slime.hp = 150;
+  await withBalance(config, async () => {
+    const prepared = await resolveEncounters(user.id, [first.id], undefined, undefined, { disabledSkill2Ids: [] });
+    const joined = await joinExpeditionCombat(user.id, first.id, [second.id]);
+    assert.ok(joined);
+    const [arrival] = joined.arrivals;
+    assert.equal(arrival.id, second.id);
+    assert.deepEqual(joined.battle.movement.filter(frame => frame.kind === "spawn").map(frame => frame.at), [arrival.at]);
+    const eventsBeforeArrival = (steps: BattleStep[]) => steps.filter(step => step.at < arrival.at)
+      .map(({ at, label, damage, teamHp, enemyHp }) => ({ at, label, damage, teamHp, enemyHp }));
+    assert.deepEqual(eventsBeforeArrival(joined.battle.steps), eventsBeforeArrival(prepared.steps));
+    assert.deepEqual((await joinExpeditionCombat(user.id, first.id, [second.id]))?.arrivals, joined.arrivals);
+    const leader = await prisma.encounter.findUniqueOrThrow({ where: { id: first.id } });
+    await prisma.encounter.update({ where: { id: first.id }, data: { liveCombat: { ...(leader.liveCombat as object), startedAt: 0 } } });
+    const ids = [first.id, second.id];
+    await resolveEncounters(user.id, ids);
+    await resolveEncounters(user.id, ids);
+    const { gold } = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    assert.equal(gold, config.rewards.slime.gold * 2);
   });
 });

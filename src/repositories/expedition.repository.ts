@@ -94,10 +94,40 @@ function expeditionPlayback(live: ExpeditionCombat, battle = replayExpedition(li
     movement: battle.movement, meleeRange: PVP_MELEE_RANGE, rangedRange: liveCombatDistances(live.rulesVersion).rangedRange,
     initialTeamHp: live.fighters.filter(fighter => fighter.userId === "team").map(fighter => fighter.hp ?? fighter.stats.hp),
     initialTeamMp: live.fighters.filter(fighter => fighter.userId === "team").map(fighter => fighter.mp ?? fighter.stats.mp),
-    enemies: withBalance(live.balance, () => battle.summoned.map(summon => ({
-      id: `summon-${live.encounterIds[0]}-${summon.index}`, summoned: true, ...enemyRewards(summon.type),
+    enemies: withBalance(live.balance, () => battle.summoned.map((summon, index) => ({
+      id: `summon-${live.encounterIds[0]}-${index}`, summoned: true, ...enemyRewards(summon.type),
     }))),
   };
+}
+
+export async function joinExpeditionCombat(userId: string, leaderId: string, ids: string[]) {
+  return prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+    const leader = await tx.encounter.findFirst({ where: { id: leaderId, userId } });
+    const live = leader?.liveCombat as unknown as ExpeditionCombat | undefined;
+    if (!leader || !live || leader.result) return null;
+    const newIds = ids.filter(id => !live.encounterIds.includes(id));
+    if (newIds.length) {
+      const previousArrival = Math.max(0, ...live.fighters.map(fighter => fighter.spawnAt ?? 0));
+      const at = Math.max(previousArrival, (Date.now() - live.startedAt) / 1000 + 0.35);
+      if (at >= live.duration || live.encounterIds.length + newIds.length > 32) return null;
+      const records = await tx.encounter.findMany({ where: { id: { in: newIds }, userId, location: leader.location, result: { equals: Prisma.DbNull } } });
+      if (records.length !== newIds.length || records.some(record => JSON.stringify(record.teamIds) !== JSON.stringify(leader.teamIds))) {
+        throw new HttpError(400, "Choose enemies from the current expedition");
+      }
+      const opponents = newIds.map(id => ({ id, type: records.find(record => record.id === id)!.enemyType as EnemyType }));
+      const enemies = withBalance(live.balance, () => expeditionFighters([], opponents, COMBAT_ENCOUNTER_DISTANCE));
+      live.encounterIds.push(...newIds);
+      live.fighters.push(...enemies.map((enemy, index) => ({ ...enemy, spawnAt: at, spawnOffset: index * 72 })));
+    }
+    const battle = replayExpedition(live);
+    if (newIds.length) {
+      live.duration = battle.duration;
+      await tx.encounter.update({ where: { id: leaderId }, data: { liveCombat: live as unknown as Prisma.InputJsonValue } });
+    }
+    return { battle: expeditionPlayback(live, battle), arrivals: live.fighters.flatMap(fighter =>
+      fighter.spawnAt !== undefined && ids.includes(fighter.id) ? [{ id: fighter.id, at: fighter.spawnAt }] : []) };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
 }
 
 export async function toggleExpeditionSkill2(userId: string, encounterId: string, fighterId: string, enabled: boolean) {

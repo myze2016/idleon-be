@@ -9,9 +9,9 @@ import { enemies, enemyLocations } from "../models/enemy.js";
 import { effectiveStats } from "../models/artifact.js";
 import type { WeaponType } from "../models/character.js";
 import { simulateExpeditionBattle } from "../services/expedition-battle.service.js";
-import { hasActiveSkill2, latestSkill2Change, LIVE_COMBAT_RULES_VERSION, liveSkill2Controls, type LiveCombat, type Skill2Change } from "../services/live-combat.js";
+import { hasActiveSkill2, LIVE_COMBAT_RULES_VERSION, liveSkill2Controls, replayCombat, type LiveCombat, type Skill2Change } from "../services/live-combat.js";
 import { HttpError } from "../utils/http-error.js";
-import { COMBAT_ENCOUNTER_DISTANCE, simulateDuel, type DuelFighter } from "../services/pvp-battle.service.js";
+import { COMBAT_ENCOUNTER_DISTANCE, type DuelFighter } from "../services/pvp-battle.service.js";
 import type { EnemyType } from "../models/enemy.js";
 
 // Mounted behind the admin router's authentication, fresh role check and origin check.
@@ -98,9 +98,7 @@ balanceRouter.post("/arena-test", (req, res) => {
       throw new HttpError(400, "Skill 2 is unavailable for that fighter");
     }
     const live: LiveCombat = { seed: String(seed), balance: config, fighters, changes: history, rulesVersion: LIVE_COMBAT_RULES_VERSION };
-    const result = simulateDuel(fighters, random, undefined, {
-      skill2EnabledAt: (fighter, at) => latestSkill2Change(history, fighter.id, at)?.enabled,
-    });
+    const result = replayCombat(live, undefined, false, random);
     const skill2 = ["team-1", "team-2"].flatMap(team => liveSkill2Controls(team, live).map(control => ({
       ...control, name: `${control.name} (${team === "team-1" ? "Team 1" : "Team 2"})`,
     })));

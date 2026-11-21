@@ -4,6 +4,10 @@ import type { WeaponType } from "../models/character.js";
 import { simulateSkillBattle } from "./skill-battle.service.js";
 
 export interface Fighter { id: string; stats: CharacterStats; weapon?: WeaponType; skill2Unlocked?: boolean; skill2Enabled?: boolean; hp?: number; mp?: number; backRow?: boolean }
+export type CombatStatus = "poison" | "bleed" | "stun" | "freeze" | "guard" | "shield" | "attack" | "speed" | "hero" | "burst";
+/** Expiry on the battle clock. Null marks an effect that stays until removed. */
+export type CombatStatusEnds = Partial<Record<CombatStatus, number | null>>;
+
 export interface BattleStep {
   at: number;
   actor: "team" | "enemy"; characterId: string; damage: number; enemyHp: number; teamHp: number[];
@@ -12,6 +16,7 @@ export interface BattleStep {
   teamCasting?: ({ name: string; startedAt: number; endsAt: number } | null)[];
   enemyIndex?: number; enemyHps?: number[]; enemyMps?: number[];
   statuses?: number[];
+  statusEnds?: (CombatStatusEnds | null)[];
 }
 
 export function simulateGroupBattle(team: Fighter[], enemies: CharacterStats[], random?: () => number) {
